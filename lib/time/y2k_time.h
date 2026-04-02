@@ -1,17 +1,8 @@
-#ifndef __Y2K_TIME_H__
-#define __Y2K_TIME_H__
+#ifndef __Y2K_TIME_H
+#define __Y2K_TIME_H
 
 #include <stdint.h>
-
-typedef struct
-{
-    uint8_t year;    // 0-99 (represents 2000-2099)
-    uint8_t month;   // 1-12
-    uint8_t day;     // 1-31
-    uint8_t hours;   // 0-23
-    uint8_t minutes; // 0-59
-    uint8_t seconds; // 0-59
-} RTC_DateTime_t;
+#include "datetime.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -25,4 +16,4 @@ extern "C"
 }
 #endif
 
-#endif // __Y2K_TIME_H__
+#endif // __Y2K_TIME_H

@@ -1,17 +1,18 @@
-#ifndef UART_SUBSYSTEM_H
-#define UART_SUBSYSTEM_H
-
-/* =============================================================================
- * UART Subsystem — STM32 HAL DMA/Idle-line, FreeRTOS buffer pool
+/**
+ * @file    uart_subsystem.h
+ * @brief   UART Subsystem — STM32 HAL DMA/Idle-line, FreeRTOS buffer pool.
+ *
  * =============================================================================
  * Set every UART's Rx DMA to "Circular" mode in STM32CubeMX.
+ * For RS-485 UARTs, enable "RS485 Driver Enable" (DE) in CubeMX so the
+ * hardware UART_CR3_DEM bit asserts the DE pin automatically on each TX;
+ * no GPIO toggling is required in application code.
  *
  * Typical usage
  * ─────────────
  *  void ModemTask(void *arg) {
  *      UART_Sys_Init();
  *      UART_Ctx_t *modem = UART_Sys_Register(&huart1);
- *      UART_Ctx_t *gps   = UART_Sys_Register(&huart4);
  *
  *      UART_Packet_t pkt;
  *      for (;;) {
@@ -21,8 +22,25 @@
  *          }
  *      }
  *  }
+ *
+ * Bug-fix history
+ * ───────────────
+ *  BUG-1   Per-UART tx_done_sem; TxCpltCallback matches by Instance.
+ *  BUG-2   len clamped to UART_BLOCK_SIZE in ISR before any memcpy.
+ *  BUG-4   HAL_UART_DMAStop() called on TX timeout to clear HAL_BUSY.
+ *  BUG-5   last_read_ptr type changed uint32_t → uint16_t.
+ *  BUG-6   ReleaseBuffer: NULL guard + pool-range check.
+ *  DESIGN-1 xFreeQueue NULL guard prevents double-init.
+ *  DESIGN-2 Duplicate-register guard returns existing context.
+ *  BUG-U1  FreeRTOS objects created and validated before slot committed;
+ *          objects cleaned up on any allocation failure (release-safe).
+ *  BUG-U2  HAL_UARTEx_ReceiveToIdle_DMA return value checked; NULL returned
+ *          on failure so callers are not given a dead context.
  * =============================================================================
  */
+
+#ifndef UART_SUBSYSTEM_H
+#define UART_SUBSYSTEM_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -33,64 +51,66 @@
 
 /* ─────────────────────────── Configuration ──────────────────────────────── */
 
-/** Number of UART peripherals that can be registered. */
+/** Number of UART peripherals that can be registered simultaneously. */
 #define MAX_UARTS           3u
 
-/*
- * The A7670E modem emits 5-6 lines back-to-back during TLS handshake (AT
- * echo + status lines + URC). With 3 UARTs × 6 slots = 18 total pool blocks,
- * a burst of 6 modem lines before the AT task drains the queue exhausted the
- * pool and caused the ISR to silently discard data.
+/**
+ * RX queue depth per UART.
+ * 6 slots handles the typical A7670E burst of 5–6 response lines during a
+ * TLS handshake without pool exhaustion.  For Modbus RTU (strictly one
+ * outstanding frame) 2 would suffice, but 6 is fine and costs only
+ * 6 × sizeof(UART_Packet_t) = 6 × 8 = 48 bytes of FreeRTOS heap per UART.
  */
 #define UART_RX_SIZE        6u
 
-/** Total pool blocks shared across all UARTs (MAX_UARTS × UART_RX_SIZE). */
+/** Total pool blocks shared across all registered UARTs. */
 #define UART_POOL_BLOCKS    (MAX_UARTS * UART_RX_SIZE)   /* = 18 */
 
 /**
- * Maximum bytes per pool block.
- * UART_DMA_BUF_SIZE must be ≥ 2 × UART_BLOCK_SIZE so a full circular
- * buffer fill never exceeds one pool block.
+ * Maximum payload bytes per pool block.
+ *
+ * UART_DMA_BUF_SIZE must be >= 2 × UART_BLOCK_SIZE so that a full circular
+ * buffer fill never exceeds one pool block in a single ISR callback.
+ * With 4800 baud and Modbus RTU, the largest legal frame is 256 bytes
+ * (FC03 response, 125 registers × 2 bytes + 5 overhead) — larger than one
+ * block.  In practice SEM228P and R66S return at most a handful of registers,
+ * so 128 bytes is ample.  If you add slaves with longer responses, increase
+ * both constants proportionally.
  */
 #define UART_BLOCK_SIZE     128u
 
-/** Per-UART circular DMA hardware receive buffer. */
+/** Per-UART circular DMA hardware receive buffer (2 × UART_BLOCK_SIZE). */
 #define UART_DMA_BUF_SIZE   256u
 
 /* ─────────────────────────── Data structures ────────────────────────────── */
 
-/** Received data frame delivered to application tasks. */
+/**
+ * Received data frame delivered to application tasks.
+ * payload must be returned to the pool with UART_Sys_ReleaseBuffer() after use.
+ */
 typedef struct {
-    uint8_t            *payload;   /* points into static pool; release after use */
-    uint16_t            length;
-    UART_HandleTypeDef *huart;
+    uint8_t            *payload;   /**< Points into the static pool. */
+    uint16_t            length;    /**< Number of valid bytes in payload. */
+    UART_HandleTypeDef *huart;     /**< Which UART this packet arrived on. */
 } UART_Packet_t;
 
 /**
  * Per-UART runtime context.
  *
- * Changes from original:
+ * last_read_ptr  uint16_t — matches HAL's Size parameter type exactly,
+ *                avoiding implicit promotion in ISR arithmetic (BUG-5).
  *
- *   last_read_ptr: uint32_t → uint16_t   (FIX BUG-5)
- *     HAL's Size parameter and all DMA indices are uint16_t. Storing the
- *     value in uint32_t was misleading, wasted 2 bytes per context, and
- *     caused implicit promotion in every ISR arithmetic expression.
- *
- *   tx_done_sem: added per-context   (FIX BUG-1)
- *     The original code had one global xTxDoneSem shared by all UARTs.
- *     HAL_UART_TxCpltCallback fired for every UART and gave the single
- *     semaphore regardless of which UART completed, allowing a fast UART to
- *     unblock a task waiting on a different, still-in-progress UART.
- *     Moving the semaphore into each context lets TxCpltCallback signal
- *     exactly the right waiter.
+ * tx_done_sem    Per-context binary semaphore — ensures TxCpltCallback
+ *                signals only the UART that actually completed (BUG-1).
  */
 typedef struct {
     UART_HandleTypeDef *huart;
+    bool                is_ready;
     uint8_t             dma_rx_buf[UART_DMA_BUF_SIZE];
-    uint16_t            last_read_ptr;  /* last-consumed DMA write position   */
+    uint16_t            last_read_ptr;      /**< Last-consumed DMA write position. */
     QueueHandle_t       rx_queue;
     SemaphoreHandle_t   tx_mutex;
-    SemaphoreHandle_t   tx_done_sem;    /* signalled by HAL_UART_TxCpltCallback */
+    SemaphoreHandle_t   tx_done_sem;        /**< Signalled by HAL_UART_TxCpltCallback. */
 } UART_Ctx_t;
 
 /* ─────────────────────────── Public API ─────────────────────────────────── */
@@ -99,44 +119,91 @@ typedef struct {
 extern "C" {
 #endif
 
-/** Initialise the shared buffer pool. Call once before UART_Sys_Register. */
-void        UART_Sys_Init(void);
+/**
+ * @brief  Initialise the shared buffer pool.
+ *
+ * Must be called once before any UART_Sys_Register call.  Safe to call
+ * multiple times — returns false without side-effects on subsequent calls
+ * (DESIGN-1).
+ *
+ * @return true on first successful initialisation, false otherwise.
+ */
+bool        UART_Sys_Init(void);
 
 /**
- * Register a UART and start its circular DMA receive.
- * Returns the context pointer used in all subsequent calls, or NULL if
- * MAX_UARTS has been reached. Registering the same huart twice returns the
- * existing context (idempotent).
+ * @brief  Register a UART peripheral and start its circular DMA receive.
+ *
+ * Registering the same huart twice returns the existing context (idempotent,
+ * DESIGN-2).  All three FreeRTOS objects (mutex, semaphore, queue) are
+ * created and validated before the slot is committed; on any failure the
+ * objects are freed and NULL is returned (BUG-U1).  The HAL DMA start
+ * return value is checked; NULL is returned if DMA fails to start (BUG-U2).
+ *
+ * @param  huart  Initialised HAL UART handle with DMA Rx in Circular mode.
+ * @return Pointer to the allocated context, or NULL on failure.
  */
 UART_Ctx_t *UART_Sys_Register(UART_HandleTypeDef *huart);
 
 /**
- * Transmit len bytes over ctx's UART using DMA, blocking until the transfer
- * completes or timeout_ms elapses. Returns true on success.
+ * @brief  Un-register a UART, stop DMA receive, and free all FreeRTOS objects.
  *
- * pData is const — callers may pass string literals without casting.  (FIX DESIGN-4)
+ * Any pending packets in the RX queue are flushed and their pool buffers
+ * returned before the queue is deleted.
+ *
+ * @param  ctx  Context returned by UART_Sys_Register.
  */
-bool UART_Sys_Send(UART_Ctx_t *ctx, const uint8_t *pData,
-                   uint16_t len, uint32_t timeout_ms);
+void        UART_Sys_UnRegister(UART_Ctx_t *ctx);
 
 /**
- * Block until a packet arrives on ctx's RX queue (up to timeout_ms ticks).
- * On success, out_packet->payload must later be passed to UART_Sys_ReleaseBuffer.
+ * @brief  Transmit @p len bytes over @p ctx's UART using DMA.
+ *
+ * Blocks until the transfer completes or @p timeout_ms elapses.
+ * On timeout the stalled DMA transfer is aborted so that subsequent calls
+ * are not permanently blocked by HAL_BUSY (BUG-4).
+ * pData is const — callers may pass string literals or read-only buffers.
+ *
+ * @param  ctx         Registered UART context.
+ * @param  pData       Data to transmit.
+ * @param  len         Number of bytes.
+ * @param  timeout_ms  Maximum wait time in milliseconds.
+ * @return true on success, false on timeout or HAL error.
  */
-bool UART_Sys_Receive(UART_Ctx_t *ctx, UART_Packet_t *out_packet,
-                      uint32_t timeout_ms);
+bool        UART_Sys_Send(UART_Ctx_t *ctx, const uint8_t *pData,
+                          uint16_t len, uint32_t timeout_ms);
 
 /**
- * Discard all pending packets on ctx's RX queue, returning their pool
- * buffers. Safe to call at any time; does not affect other UARTs.
+ * @brief  Block until a packet arrives on @p ctx's RX queue.
+ *
+ * @param  ctx         Registered UART context.
+ * @param  out_packet  Packet structure to fill; out_packet->payload must be
+ *                     released with UART_Sys_ReleaseBuffer after use.
+ * @param  timeout_ms  Maximum wait time in milliseconds.
+ * @return true if a packet was received within the timeout.
  */
-bool UART_Sys_FlushReceive(UART_Ctx_t *ctx);
+bool        UART_Sys_Receive(UART_Ctx_t *ctx, UART_Packet_t *out_packet,
+                             uint32_t timeout_ms);
 
 /**
- * Return a payload buffer to the free pool. Must be called exactly once per
- * received packet after the application has finished reading it.
+ * @brief  Discard all pending packets on @p ctx's RX queue.
+ *
+ * Returns each discarded packet's pool buffer.  Safe to call at any time;
+ * does not affect other registered UARTs.
+ *
+ * @param  ctx  Registered UART context.
+ * @return true on success, false if ctx is NULL.
  */
-void UART_Sys_ReleaseBuffer(uint8_t *pBuffer);
+bool        UART_Sys_FlushReceive(UART_Ctx_t *ctx);
+
+/**
+ * @brief  Return a payload buffer to the shared free pool.
+ *
+ * Must be called exactly once per received packet after the application
+ * has finished reading it.  NULL and out-of-pool pointers are silently
+ * rejected in release builds and trapped by configASSERT in debug (BUG-6).
+ *
+ * @param  pBuffer  Pointer previously obtained from a UART_Packet_t payload.
+ */
+void        UART_Sys_ReleaseBuffer(uint8_t *pBuffer);
 
 #ifdef __cplusplus
 }

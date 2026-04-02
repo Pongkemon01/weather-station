@@ -1,21 +1,21 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.h
-  * @brief          : Header for main.c file.
-  *                   This file contains the common defines of the application.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.h
+ * @brief          : Header for main.c file.
+ *                   This file contains the common defines of the application.
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2026 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
@@ -31,11 +31,70 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "FreeRTOS.h"
+#include "semphr.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+    /* Ready status of each peripheral */
+    typedef struct
+    {
+        bool ui_ready;
+        bool usart_ready;
+        bool modbus_ready;
+        bool a7670_ready;
+        bool bmp390_ready;
+        bool sht45_ready;
+        bool fram_ready;
+        bool datetime_ready;
+        bool rainfall_ok;
+        bool light_ok;
+        bool sd_detected;
+        bool sd_write_protected;
+    } System_Ready_Status_t;
+    extern System_Ready_Status_t system_ready_status;
+
+    /* UI interface data */
+    typedef enum
+    {
+        LED_OFF = 0,
+        LED_ON,
+        LED_BLINK
+    } UI_LED_State_t;
+
+    typedef struct
+    {
+        // LCD
+        char disp[2][16];      // Display buffer
+        bool lcd_need_updated; // "disp" contains new data needed to update the lcd
+
+        // LCD Back-light
+        bool lcd_bk_on;
+
+        // LCD Cursor
+        bool lcd_cursor_on;
+
+        // LED
+        UI_LED_State_t led_red;   // Desire status of red LED
+        UI_LED_State_t led_green; // Desire status of green LED
+
+        // Switch status
+        bool key_up;
+        bool key_down;
+        bool key_enter;
+        bool key_menu;
+
+        /*
+         * Data in this structure are used for communication between UI task and other tasks.
+         * Therefore, it is a shared data requiring protection.
+         */
+        SemaphoreHandle_t mutex;
+    } UI_Interface_t;
+    extern UI_Interface_t ui_interface;
 
 /* USER CODE END ET */
 
@@ -105,6 +164,27 @@ void Error_Handler(void);
 #define UI_SCL_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+/* Debug LED macros */
+#define LED_DEBUG_RED_ON() HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_SET)
+#define LED_DEBUG_RED_OFF() HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET)
+#define LED_DEBUG_RED_TOGGLE() HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin)
+#define LED_DEBUG_YELLOW_ON() HAL_GPIO_WritePin(LED_YELLOW_GPIO_Port, LED_YELLOW_Pin, GPIO_PIN_SET)
+#define LED_DEBUG_YELLOW_OFF() HAL_GPIO_WritePin(LED_YELLOW_GPIO_Port, LED_YELLOW_Pin, GPIO_PIN_RESET)
+#define LED_DEBUG_YELLOW_TOGGLE() HAL_GPIO_TogglePin(LED_YELLOW_GPIO_Port, LED_YELLOW_Pin)
+#define LED_DEBUG_GREEN_ON() HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_SET)
+#define LED_DEBUG_GREEN_OFF() HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET)
+#define LED_DEBUG_GREEN_TOGGLE() HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin)
+#define LED_DEBUG_BLUE_ON() HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_SET)
+#define LED_DEBUG_BLUE_OFF() HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_RESET)
+#define LED_DEBUG_BLUE_TOGGLE() HAL_GPIO_TogglePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin)
+
+/* User switches macros */
+#define SW1_DEBUG_STATUS() HAL_GPIO_ReadPin(USR_SW1_GPIO_Port, USR_SW1_Pin)
+#define SW2_DEBUG_STATUS() HAL_GPIO_ReadPin(USR_SW2_GPIO_Port, USR_SW2_Pin)
+
+/* SD Card status */
+#define SD_INSERTED_STATUS() (HAL_GPIO_ReadPin(SD_CD_GPIO_Port, SD_CD_Pin) == GPIO_PIN_RESET)
+#define SD_WRITE_PROTECTED_STATUS() (HAL_GPIO_ReadPin(SD_WP_GPIO_Port, SD_WP_Pin) == GPIO_PIN_RESET)
 
 /* USER CODE END Private defines */
 

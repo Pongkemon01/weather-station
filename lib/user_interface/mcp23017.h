@@ -15,6 +15,8 @@ extern "C"
     bool mcp23017_write_port_b(uint8_t data);
     uint8_t mcp23017_read_port_a(void);
     uint8_t mcp23017_read_port_b(void);
+    uint8_t mcp23017_read_latch_a(void);
+    uint8_t mcp23017_read_latch_b(void);
 #ifdef __cplusplus
 }
 #endif

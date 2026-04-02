@@ -8,8 +8,8 @@
 #include "main.h"
 
 // Modify these GPIO settings according to FRAM connectivity
-#define FRAM_CS_PORT FRAM_CS_Port
-#define FRAM_CS_PIN FRAM_CS_Pin
+#define FRAM_CS_PORT FRAM_CS_GPIO_Port
+#define FRAM_CS_PIN  FRAM_CS_Pin
 
 // FRAM specification
 #define FRAM_TIMEOUT 100 // Timeout for each SPI transaction

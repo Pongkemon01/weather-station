@@ -27,7 +27,7 @@ extern "C"
     bool ui_lcd_bk_off(void);
     bool ui_lcd_cursor_on(void);
     bool ui_lcd_cursor_off(void);
-    bool ui_lcd_set_cursor(uint8_t col, uint8_t row);
+    bool ui_lcd_set_cursor(uint8_t col, uint8_t row);  /* Values start from 0 */
     bool ui_lcd_putchar(char c);
     bool ui_lcd_print(char *str);
     bool ui_lcd_printXY(uint8_t col, uint8_t row, char *str);
@@ -36,4 +36,4 @@ extern "C"
 }
 #endif
 
-#endif  /* __UI_H */
+#endif /* __UI_H */

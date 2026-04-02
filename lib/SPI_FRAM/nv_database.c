@@ -3,7 +3,7 @@
 
 #define VALIDATION_VALUE '\xA1'
 #define OPERATION_ADDR 0
-#define METADATA_ADDR sizeof(Opeeration_Data_t)
+#define METADATA_ADDR sizeof(Operation_Data_t)
 
 /* Default meta data */
 static const Meta_Data_t initial_meta = {
@@ -20,7 +20,7 @@ static const Meta_Data_t initial_meta = {
 };
 
 /* Global variables */
-static Opeeration_Data_t oper;
+static Operation_Data_t oper;
 static Meta_Data_t meta;
 
 /* Local API */
@@ -93,7 +93,7 @@ bool DB_GetData(uint16_t index, Weather_Data_Packed_t *data)
 
     addr = (uint32_t)index * sizeof(Weather_Data_Packed_t);
 
-    if(fram_read(index, (uint8_t *)data, sizeof(Weather_Data_Packed_t)) == sizeof(Weather_Data_Packed_t))
+    if(fram_read(addr, (uint8_t *)data, sizeof(Weather_Data_Packed_t)) == sizeof(Weather_Data_Packed_t))
         return(true);
     else
         return(false);
@@ -184,13 +184,13 @@ uint16_t DB_GetTotalData(void)
 /* ---------------------------------------------------------------- */
 uint16_t DB_GetTotalToUpload(void)
 {
-    reutrn((oper.db_head - oper.upload_tail) & 0x7FFF);
+    return((oper.db_head - oper.upload_tail) & 0x7FFF);
 }
 
 /* ---------------------------------------------------------------- */
 uint16_t DB_GetTotalToSD(void)
 {
-    reutrn((oper.db_head - oper.sd_tail) & 0x7FFF);
+    return((oper.db_head - oper.sd_tail) & 0x7FFF);
 }
 
 /* ---------------------------------------------------------------- */

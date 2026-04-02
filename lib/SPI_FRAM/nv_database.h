@@ -13,7 +13,7 @@ typedef struct {
     uint16_t    db_head;                // point to the slot that is considered empty
     uint16_t    upload_tail;            // point to the first slot that need to upload to server
     uint16_t    sd_tail;                // point to the first slot that need to save to SD card
-}Opeeration_Data_t;
+}Operation_Data_t;
 
 typedef struct {
     uint8_t     validation_value;       // Indicate whether these configurations are valid
@@ -31,11 +31,6 @@ typedef struct {
     float       rainfall_adj;
     char        server_url[128];        // URL for internet server to POST weather data (127 chars max.)
 }Meta_Data_t;
-
-// Verify whether the size of Meta_Data_t is not too large
-#if ((sizeof(Meta_Data_t) + sizeof(Opeeration_Data_t)) > 256)
-#error "Meta_Data_t is too large"
-#endif
 
 #ifdef __cplusplus
 extern "C"

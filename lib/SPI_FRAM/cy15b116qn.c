@@ -38,7 +38,7 @@ bool fram_init(SPI_HandleTypeDef *hframspi)
 
     if(fram_write_enable())
         return true;
-    
+
     hfram = NULL;
     return false;
 }
@@ -46,14 +46,14 @@ bool fram_init(SPI_HandleTypeDef *hframspi)
 /* --------------------------------------------------- */
 bool fram_write_enable(void)
 {
-    uint8_t cmd = WREN;
+    static const uint8_t cmd = WREN;
     bool ret;
 
     if(hfram == NULL)
         return false;
 
     FRAM_CS_ON();
-    ret = (HAL_SPI_Transmit(hfram, &cmd, 1, FRAM_TIMEOUT) == HAL_OK);
+    ret = (HAL_SPI_Transmit(hfram, (const uint8_t *)&cmd, 1, FRAM_TIMEOUT) == HAL_OK);
     FRAM_CS_OFF();
 
     return ret;
@@ -62,14 +62,14 @@ bool fram_write_enable(void)
 /* --------------------------------------------------- */
 bool fram_write_disable(void)
 {
-    uint8_t cmd = WRDI;
+    static const uint8_t cmd = WRDI;
     bool ret;
 
     if(hfram == NULL)
         return false;
 
     FRAM_CS_ON();
-    ret = (HAL_SPI_Transmit(hfram, &cmd, 1, FRAM_TIMEOUT) == HAL_OK);
+    ret = (HAL_SPI_Transmit(hfram, (const uint8_t *)&cmd, 1, FRAM_TIMEOUT) == HAL_OK);
     FRAM_CS_OFF();
 
     return ret;
@@ -90,7 +90,7 @@ uint32_t fram_write(uint32_t addr, uint8_t *data, uint32_t len)
     cmd[3] = (uint8_t)(addr & 0xFF);
 
     FRAM_CS_ON();
-    if (HAL_SPI_Transmit(hfram, &cmd, 4, FRAM_TIMEOUT) != HAL_OK)
+    if (HAL_SPI_Transmit(hfram, (const uint8_t *)&cmd, 4, FRAM_TIMEOUT) != HAL_OK)
     {
         FRAM_CS_OFF();
         return 0;
@@ -101,7 +101,7 @@ uint32_t fram_write(uint32_t addr, uint8_t *data, uint32_t len)
     written_len = 0;
     while (len > 65535)
     {
-        if (HAL_SPI_Transmit(hfram, data, 65535, FRAM_TIMEOUT) != HAL_OK)
+        if (HAL_SPI_Transmit(hfram, (const uint8_t *)data, 65535, FRAM_TIMEOUT) != HAL_OK)
         {
             FRAM_CS_OFF();
             return written_len;
@@ -111,7 +111,7 @@ uint32_t fram_write(uint32_t addr, uint8_t *data, uint32_t len)
         written_len += 65535u;
     }
 
-    if (HAL_SPI_Transmit(hfram, data, len, FRAM_TIMEOUT) != HAL_OK)
+    if (HAL_SPI_Transmit(hfram, (const uint8_t *)data, len, FRAM_TIMEOUT) != HAL_OK)
     {
         FRAM_CS_OFF();
         return written_len;
@@ -136,7 +136,7 @@ uint32_t fram_read(uint32_t addr, uint8_t *data, uint32_t len)
     cmd[3] = (uint8_t)(addr & 0xFF);
 
     FRAM_CS_ON();
-    if (HAL_SPI_Transmit(hfram, &cmd, 4, FRAM_TIMEOUT) != HAL_OK)
+    if (HAL_SPI_Transmit(hfram, (const uint8_t *)&cmd, 4, FRAM_TIMEOUT) != HAL_OK)
     {
         FRAM_CS_OFF();
         return 0;
@@ -193,13 +193,13 @@ uint16_t fram_write_special_sector(uint8_t addr, uint8_t *data, uint16_t len)
 
     /* Start writing process */
     FRAM_CS_ON();
-    if (HAL_SPI_Transmit(hfram, cmd, 4, FRAM_TIMEOUT) != HAL_OK)
+    if (HAL_SPI_Transmit(hfram, (const uint8_t *)cmd, 4, FRAM_TIMEOUT) != HAL_OK)
     {
         FRAM_CS_OFF();
         return 0;
     }
 
-    if (HAL_SPI_Transmit(hfram, data, actual_len, FRAM_TIMEOUT) != HAL_OK)
+    if (HAL_SPI_Transmit(hfram, (const uint8_t *)data, actual_len, FRAM_TIMEOUT) != HAL_OK)
     {
         actual_len = 0;
     }
@@ -229,7 +229,7 @@ uint16_t fram_read_special_sector(uint8_t addr, uint8_t *data, uint16_t len)
         actual_len = len;
 
     FRAM_CS_ON();
-    if (HAL_SPI_Transmit(hfram, cmd, 4, FRAM_TIMEOUT) != HAL_OK)
+    if (HAL_SPI_Transmit(hfram, (const uint8_t *)cmd, 4, FRAM_TIMEOUT) != HAL_OK)
     {
         FRAM_CS_OFF();
         return 0;
@@ -247,14 +247,14 @@ uint16_t fram_read_special_sector(uint8_t addr, uint8_t *data, uint16_t len)
 /* --------------------------------------------------- */
 uint8_t fram_read_status_register(void)
 {
-    uint8_t cmd = RDSR;
+    static const uint8_t cmd = RDSR;
     uint8_t ret;
 
     if(hfram == NULL)
         return 0;
 
     FRAM_CS_ON();
-    HAL_SPI_Transmit(hfram, &cmd, 1, FRAM_TIMEOUT);
+    HAL_SPI_Transmit(hfram, (const uint8_t *)&cmd, 1, FRAM_TIMEOUT);
     HAL_SPI_Receive(hfram, &ret, 1, FRAM_TIMEOUT);
     FRAM_CS_OFF();
 
@@ -274,7 +274,7 @@ bool fram_write_status_register(uint8_t data)
     cmd[1] = data;
 
     FRAM_CS_ON();
-    ret = (HAL_SPI_Transmit(hfram, &cmd, 2, FRAM_TIMEOUT) == HAL_OK);
+    ret = (HAL_SPI_Transmit(hfram, (const uint8_t *)&cmd, 2, FRAM_TIMEOUT) == HAL_OK);
     FRAM_CS_OFF();
 
     return ret;

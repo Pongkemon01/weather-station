@@ -84,10 +84,10 @@ static bool ui_lcd_write_data(uint8_t data)
 static inline void DWT_Delay_us(volatile uint32_t microseconds)
 {
   uint32_t clk_cycle_start = DWT->CYCCNT;
- 
+
   /* Go to number of cycles for system */
   microseconds *= (HAL_RCC_GetHCLKFreq() / 1000000);
- 
+
   /* Delay till end */
   while ((DWT->CYCCNT - clk_cycle_start) < microseconds);
 }
@@ -98,7 +98,7 @@ bool ui_init(I2C_HandleTypeDef *hi2c)
 {
     if(!(mcp23017_init(hi2c)))
         return false;
-    
+
     /* Init LED */
     if(!(ui_led_set_value(0x00)))
         return false;
@@ -116,7 +116,7 @@ bool ui_init(I2C_HandleTypeDef *hi2c)
     if(!(ui_lcd_write_command(0x30)))
         return false;
     DWT_Delay_us(160);
-    
+
     /* Initialization sequence */
     if(!(ui_lcd_write_command(LCD_INST_FUNCTION_SET | LCD_FUNCTION_4BIT_MODE)))      // Initialize to 4-bit mode
         return false;
@@ -141,31 +141,35 @@ uint8_t ui_key_status(void)
 /* LED API */
 bool ui_led_set_value(uint8_t value)
 {
-    static uint8_t current_led;
-
     value &= 0xF0;      // Mask only LED bit
-    current_led = value;
     return(mcp23017_write_port_b(value));
 }
 
 bool ui_led_red_on(void)
 {
+    uint8_t current_led;
+    current_led = mcp23017_read_latch_b();
     return(ui_led_set_value(current_led | 0x80));
-
 }
 
 bool ui_led_red_off(void)
 {
+    uint8_t current_led;
+    current_led = mcp23017_read_latch_b();
     return(ui_led_set_value(current_led & 0x7F));
 }
 
 bool ui_led_green_on(void)
 {
+    uint8_t current_led;
+    current_led = mcp23017_read_latch_b();
     return(ui_led_set_value(current_led | 0x40));
 }
 
 bool ui_led_green_off(void)
 {
+    uint8_t current_led;
+    current_led = mcp23017_read_latch_b();
     return(ui_led_set_value(current_led & 0xB0));
 }
 
