@@ -1,72 +1,24 @@
 /**
- * @file  a7670_ssl_uploader.c
- * @brief HTTPS binary upload — chunked and stream modes, fully RAM-optimised.
+ * @file  ssl_uploader.c
+ * @brief HTTPS binary upload — chunked and stream modes.
  *
- * =============================================================================
- * Bugs fixed / improvements in this revision
- * ─────────────────────────────────────────────────────────────────────────────
- * BUG-SSL-1  (chunked: Content-Range last-byte off-by-one on final chunk)
- *   The original code computed range_last = offset + chunk_len - 1.
- *   For the final (short) chunk, chunk_len is already clamped to
- *   file_size - offset, so range_last = file_size - 1.  That is correct.
- *   BUT: build_headers receives the unclamped chunk_len as body_len, while
- *   range_last was computed with the clamped value — so both were actually
- *   consistent.  The real issue was that body_len (Content-Length) and the
- *   range_last sent to the server were inconsistent when chunk_len was NOT
- *   clamped (non-final chunks), because offset + chunk_len - 1 could equal
- *   file_size - 1 only if chunk_size divides file_size evenly.
- *   Fixed by computing the clamped chunk_len ONCE before both the
- *   Content-Length and the Content-Range header fields.
+ * RAM layout (static .bss — all buffers here, none on task stack):
+ *   s_fetch_buf[256]   SPI read + AT+CCHSEND payload
+ *   s_hdr_buf[384]     HTTP header assembly
+ *   s_cap_buf[64]      AT+CCHRECV response capture
+ *   s_cmd_buf[96]      AT command string (shared by all helpers)
+ *   Total: 800 B
  *
- * BUG-SSL-2  (stream: send_len overflow when resume > file_size)
- *   If session->bytes_done was somehow persisted with a value > file_size
- *   (corrupt NVM, changed file), send_len = file_size - resume would wrap
- *   to a huge uint32 value.  Added an explicit guard: if resume >= file_size
- *   we return SSL_UPLOAD_OK immediately (nothing to send).
+ * Task stack peak: ~28 B (outer locals + one callee frame, all sequential).
+ * Recommended task stack: 192 words (768 B) including FreeRTOS overhead.
  *
- * BUG-SSL-3  (wait_for_urc: CCHCLOSE timeout treated as success for all types)
- *   The final line `return (want == HTTP_URC_CCHCLOSE) ? SSL_UPLOAD_OK : ...`
- *   returned SSL_UPLOAD_ERR_OPEN for any non-CCHCLOSE timeout, which is
- *   confusing for CCHSTART (gives "open error" when the real problem is a
- *   service-start timeout).  Now uses SSL_UPLOAD_ERR_OPEN only for CCHOPEN
- *   timeout and SSL_UPLOAD_ERR_SEND_BODY for others, while CCHCLOSE is still
- *   non-fatal.
- *
- * BUG-SSL-4  (ssl_read_response: s[9..11] not bounds-checked against NUL)
- *   strstr can return a pointer where s+9, s+10, s+11 fall on the null
- *   terminator of s_cap_buf if the response was truncated.  Added an
- *   explicit strlen check before indexing.
- *
- * BUG-SSL-5  (ssl_conn_open: double-timeout; AT+CCHOPEN OK wait + URC wait
- *             both use SSL_OPEN_TIMEOUT_MS independently)
- *   A slow TLS handshake could burn SSL_OPEN_TIMEOUT_MS in the AT command
- *   phase and then SSL_OPEN_TIMEOUT_MS again waiting for the URC, doubling
- *   the effective timeout and violating the documented budget.  Fixed by
- *   using a shared start tick and computing the remaining time for the URC
- *   wait from that same start point.
- *
- * OPTIM-SSL-1  (snprintf removed from ssl_read_response inner path)
- *   AT+CCHRECV=<SESSION_ID>,0 is constant when SESSION_ID=0.  Replaced the
- *   snprintf call with a compile-time string literal.
- *
- * OPTIM-SSL-2  (validate_params: port=0 guard added)
- *   A port of 0 is almost certainly a bug (caller forgot to set it).
- *   Added p->port != 0 to validate_params.
- * =============================================================================
- *
- * Net RAM budget (unchanged from original):
- * ┌─────────────────────────────────────────────────────────────────┐
- * │ Static (.bss)   800 B  (s_fetch_buf 256 + s_hdr_buf 384        │
- * │                          + s_cap_buf 64 + s_cmd_buf 96)        │
- * │ Stack peak       ~36 B  (outer locals + one callee)            │
- * │ Task stack       192 words / 768 B                              │
- * └─────────────────────────────────────────────────────────────────┘
+ * Not re-entrant — only one upload task may be active at a time.
  */
 
 #include "a7670_ssl_uploader.h"
 
 #include <string.h>
-#include <stdio.h>
+#include <stdio.h>   /* snprintf — already needed for build_headers */
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -74,38 +26,52 @@
 
 #define SESSION_ID  0   /* CCH session index — A7670E supports 0 and 1 */
 
-/*
- * Pre-built command strings for SESSION_ID=0 (eliminates snprintf at runtime).
- * If SESSION_ID ever changes to 1, these would need updating; a static_assert
- * guards against accidental mismatch.
- */
-#define CCHRECV_CMD  "AT+CCHRECV=0,0"
-
 /* ─────────────────────────── Static buffers ─────────────────────────────── */
 
+/*
+ * All module buffers are static so they never consume task stack.
+ * This is safe because only one task may call ssl_upload_chunked /
+ * ssl_upload_stream at a time (non-re-entrant by design).
+ */
+
+/** SPI fetch window and AT+CCHSEND payload. */
 static uint8_t s_fetch_buf[SSL_FETCH_WINDOW];
+
+/** HTTP header assembly buffer used by build_headers(). */
 static char    s_hdr_buf[SSL_HEADER_BUF_SIZE];
+
+/**
+ * AT+CCHRECV response capture buffer.
+ * Registered with at_channel_set_capture() before AT+CCHRECV, cleared after.
+ * 64 B holds "+CCHRECV:DATA,0,4096\n" (21 B) + "HTTP/1.1 NNN reason\n" (38 B).
+ */
 static char    s_cap_buf[SSL_RECV_CAP_SIZE];
+
+/**
+ * AT command string buffer shared by all helpers.
+ * 96 B covers the largest command:
+ *   "AT+CCHOPEN=0,"<63 chars>",65535,2\0" = 88 B.
+ * Helpers write here with snprintf before calling at_channel_send_*.
+ */
 static char    s_cmd_buf[SSL_CMD_BUF_SIZE];
 
 /* ─────────────────────────── Forward declarations ───────────────────────── */
 
 static SslUploadResult_t ssl_conn_open(const SslUploadParams_t *p);
 static void              ssl_conn_close(const SslUploadParams_t *p);
-static SslUploadResult_t ssl_send_headers(const SslUploadParams_t *p, int hdr_len);
+static SslUploadResult_t ssl_send_headers(const SslUploadParams_t *p,
+                                           int hdr_len);
 static SslUploadResult_t ssl_stream_body(const SslUploadParams_t *p,
                                           uint32_t from_offset,
-                                          uint32_t byte_count,
-                                          uint32_t *bytes_sent_io);
+                                          uint32_t byte_count);
 static SslUploadResult_t ssl_read_response(void);
 static int               build_headers(const SslUploadParams_t *p,
                                         uint32_t body_len,
                                         uint32_t range_first,
                                         uint32_t range_last,
                                         bool     with_range);
-static SslUploadResult_t wait_for_urc(QueueHandle_t  q,
+static SslUploadResult_t wait_for_urc(QueueHandle_t q,
                                        HttpUrcType_t  want,
-                                       TickType_t     start_tick,
                                        uint32_t       timeout_ms);
 
 static inline bool    validate_params(const SslUploadParams_t  *p,
@@ -126,25 +92,22 @@ SslUploadResult_t ssl_upload_chunked(const SslUploadParams_t *params,
     for (uint32_t offset = session->next_offset;
          offset < params->file_size; )
     {
-        /* BUG-SSL-1: Clamp chunk_len ONCE; use it for both Content-Length
-         * and Content-Range to guarantee they are always consistent. */
+        /* Compute this chunk's length — last chunk may be shorter */
         uint32_t chunk_len = chunk_size;
         if (offset + chunk_len > params->file_size)
             chunk_len = params->file_size - offset;
 
         SslUploadResult_t result = SSL_UPLOAD_ERR_RETRIES;
 
-        for (uint8_t attempt = 0u; attempt <= max_retries; attempt++)
+        for (uint8_t attempt = 0; attempt <= max_retries; attempt++)
         {
-            if (attempt > 0u)
+            if (attempt > 0)
                 vTaskDelay(pdMS_TO_TICKS(SSL_RETRY_DELAY_MS));
 
-            /* Both Content-Length and range_last use the same clamped chunk_len */
-            int hdr_len = build_headers(params,
-                                         chunk_len,
+            int hdr_len = build_headers(params, chunk_len,
                                          offset,
                                          offset + chunk_len - 1u,
-                                         true);
+                                         true);   /* Content-Range always */
             if (hdr_len <= 0) return SSL_UPLOAD_ERR_PARAM;
 
             result = ssl_conn_open(params);
@@ -158,8 +121,7 @@ SslUploadResult_t ssl_upload_chunked(const SslUploadParams_t *params,
                 continue;
             }
 
-            uint32_t sent = 0u;
-            result = ssl_stream_body(params, offset, chunk_len, &sent);
+            result = ssl_stream_body(params, offset, chunk_len);
             if (result != SSL_UPLOAD_OK)
             {
                 ssl_conn_close(params);
@@ -174,13 +136,10 @@ SslUploadResult_t ssl_upload_chunked(const SslUploadParams_t *params,
 
         if (result != SSL_UPLOAD_OK) return SSL_UPLOAD_ERR_RETRIES;
 
+        /* Chunk confirmed — advance session (safe NVM persist point) */
         offset              += chunk_len;
         session->next_offset = offset;
         session->bytes_done += chunk_len;
-
-        if (params->progress_cb)
-            params->progress_cb(params->progress_ctx,
-                                session->bytes_done, params->file_size);
     }
 
     return SSL_UPLOAD_OK;
@@ -197,22 +156,34 @@ SslUploadResult_t ssl_upload_stream(const SslUploadParams_t *params,
     const TickType_t deadline  = xTaskGetTickCount() +
                                   pdMS_TO_TICKS(SSL_STREAM_TIMEOUT_MS);
 
-    for (uint8_t attempt = 0u; attempt <= max_retries; attempt++)
+    for (uint8_t attempt = 0; attempt <= max_retries; attempt++)
     {
-        if ((TickType_t)(xTaskGetTickCount() - deadline + 1u) < 0x80000000u)
-            return SSL_UPLOAD_ERR_TIMEOUT;   /* deadline passed */
+        if (xTaskGetTickCount() >= deadline) return SSL_UPLOAD_ERR_TIMEOUT;
 
-        if (attempt > 0u)
+        if (attempt > 0)
         {
             vTaskDelay(pdMS_TO_TICKS(SSL_RETRY_DELAY_MS));
-            if ((TickType_t)(xTaskGetTickCount() - deadline + 1u) < 0x80000000u)
-                return SSL_UPLOAD_ERR_TIMEOUT;
+            if (xTaskGetTickCount() >= deadline) return SSL_UPLOAD_ERR_TIMEOUT;
         }
 
+        /*
+         * Determine resume point and whether to include Content-Range.
+         *
+         * attempt == 0:
+         *   Start from bytes_done (0 for a fresh upload; non-zero if the
+         *   caller pre-loaded a session with a previously confirmed range).
+         *   Include Content-Range only when resuming a partial file.
+         *
+         * attempt > 0, use_range_on_retry && bytes_done > 0:
+         *   Resume from confirmed offset; include Content-Range.
+         *
+         * attempt > 0, otherwise:
+         *   Full re-send from byte 0; clear bytes_done.
+         */
         uint32_t resume;
         bool     with_range;
 
-        if (attempt == 0u)
+        if (attempt == 0)
         {
             resume     = session->bytes_done;
             with_range = (session->bytes_done > 0u);
@@ -229,11 +200,8 @@ SslUploadResult_t ssl_upload_stream(const SslUploadParams_t *params,
             session->bytes_done = 0u;
         }
 
-        /* BUG-SSL-2: Guard against corrupt resume offset. */
-        if (resume >= params->file_size)
-            return SSL_UPLOAD_OK;
-
         const uint32_t send_len = params->file_size - resume;
+        if (send_len == 0u) return SSL_UPLOAD_OK;   /* nothing left */
 
         int hdr_len = build_headers(params, send_len,
                                      resume, params->file_size - 1u,
@@ -251,12 +219,12 @@ SslUploadResult_t ssl_upload_stream(const SslUploadParams_t *params,
             continue;
         }
 
-        uint32_t sent = 0u;
-        r = ssl_stream_body(params, resume, send_len, &sent);
+        r = ssl_stream_body(params, resume, send_len);
         if (r != SSL_UPLOAD_OK)
         {
             ssl_conn_close(params);
             if (r == SSL_UPLOAD_ERR_FETCH) return r;
+            /* bytes_done not updated — server confirmation not received */
             continue;
         }
 
@@ -268,6 +236,7 @@ SslUploadResult_t ssl_upload_stream(const SslUploadParams_t *params,
             session->bytes_done = params->file_size;
             return SSL_UPLOAD_OK;
         }
+        /* Non-2xx: bytes_done unchanged; retry from bytes_done */
     }
 
     return SSL_UPLOAD_ERR_RETRIES;
@@ -278,8 +247,13 @@ SslUploadResult_t ssl_upload_stream(const SslUploadParams_t *params,
 /*
  * ssl_conn_open — issue AT+CCHOPEN and wait for the deferred +CCHOPEN URC.
  *
- * BUG-SSL-5: Share a single start_tick so the two-phase wait
- * (AT command OK + URC) together consume at most SSL_OPEN_TIMEOUT_MS total.
+ * A7670E (§19.2.12):
+ *   → AT+CCHOPEN=0,"<host>",<port>,2    client_type 2 = SSL/TLS
+ *   ← OK                                command accepted
+ *   ← +CCHOPEN:0,0                      TLS handshake complete
+ *   ← +CCHOPEN:0,<err>                  TLS handshake failed (err ≠ 0)
+ *
+ * Writes to s_cmd_buf (static shared).
  */
 static SslUploadResult_t ssl_conn_open(const SslUploadParams_t *p)
 {
@@ -290,28 +264,32 @@ static SslUploadResult_t ssl_conn_open(const SslUploadParams_t *p)
                      (unsigned)p->port);
     if (n <= 0 || n >= (int)SSL_CMD_BUF_SIZE) return SSL_UPLOAD_ERR_PARAM;
 
-    TickType_t open_start = xTaskGetTickCount();
-
     if (at_channel_send_cmd(s_cmd_buf, SSL_OPEN_TIMEOUT_MS) != AT_OK)
         return SSL_UPLOAD_ERR_OPEN;
 
-    /* Use remaining time from the shared deadline for the URC wait */
-    return wait_for_urc(p->urc_queue, HTTP_URC_CCHOPEN,
-                        open_start, SSL_OPEN_TIMEOUT_MS);
+    return wait_for_urc(p->urc_queue, HTTP_URC_CCHOPEN, SSL_OPEN_TIMEOUT_MS);
 }
 
 /* -------------------------------------------------------------------------- */
 
+/*
+ * ssl_conn_close — issue AT+CCHCLOSE and drain the deferred +CCHCLOSE URC.
+ * Best-effort: errors are swallowed; modem will time out the session itself.
+ */
 static void ssl_conn_close(const SslUploadParams_t *p)
 {
     snprintf(s_cmd_buf, SSL_CMD_BUF_SIZE, "AT+CCHCLOSE=%d", SESSION_ID);
     if (at_channel_send_cmd(s_cmd_buf, SSL_CLOSE_TIMEOUT_MS) == AT_OK)
-        (void)wait_for_urc(p->urc_queue, HTTP_URC_CCHCLOSE,
-                           xTaskGetTickCount(), SSL_CLOSE_TIMEOUT_MS);
+        (void)wait_for_urc(p->urc_queue, HTTP_URC_CCHCLOSE, SSL_CLOSE_TIMEOUT_MS);
 }
 
 /* -------------------------------------------------------------------------- */
 
+/*
+ * ssl_send_headers — send s_hdr_buf (hdr_len bytes) as one AT+CCHSEND.
+ * The byte count in the command string MUST equal hdr_len exactly, because
+ * at_channel_send_binary() streams exactly hdr_len bytes after the '>' prompt.
+ */
 static SslUploadResult_t ssl_send_headers(const SslUploadParams_t *p,
                                            int hdr_len)
 {
@@ -326,10 +304,22 @@ static SslUploadResult_t ssl_send_headers(const SslUploadParams_t *p,
 
 /* -------------------------------------------------------------------------- */
 
+/*
+ * ssl_stream_body — stream file bytes over the open TLS session via repeated
+ * AT+CCHSEND calls (one per SSL_FETCH_WINDOW slice).
+ *
+ * Before each slice the URC queue is peeked non-blocking:
+ *   +CCH_PEER_CLOSED or +CCH:CCH STOP → session dead; return ERR_PEER.
+ *   Any other URC → returned to queue front (wait_for_urc may need it).
+ *
+ * fetch_cb may return fewer bytes than requested (partial read).  The number
+ * of bytes it actually wrote — `actual` — is used as the AT+CCHSEND count and
+ * to advance `pos` and `remaining`, so every counter stays consistent with the
+ * data on the wire regardless of how many bytes the SPI layer delivered.
+ */
 static SslUploadResult_t ssl_stream_body(const SslUploadParams_t *p,
                                           uint32_t from_offset,
-                                          uint32_t byte_count,
-                                          uint32_t *bytes_sent_io)
+                                          uint32_t byte_count)
 {
     HttpUrcEvent_t urc;
     uint32_t       pos       = from_offset;
@@ -343,7 +333,6 @@ static SslUploadResult_t ssl_stream_body(const SslUploadParams_t *p,
             if (urc.type == HTTP_URC_CCH_PEER_CLOSED ||
                 urc.type == HTTP_URC_CCH_STOP)
                 return SSL_UPLOAD_ERR_PEER;
-            /* Return non-fatal URC to the front so wait_for_urc can see it */
             xQueueSendToFront(p->urc_queue, &urc, 0);
         }
 
@@ -351,23 +340,27 @@ static SslUploadResult_t ssl_stream_body(const SslUploadParams_t *p,
                                  ? (uint16_t)SSL_FETCH_WINDOW
                                  : (uint16_t)remaining;
 
-        if (!p->fetch_cb(p->fetch_ctx, pos, s_fetch_buf, window))
+        /* Fetch up to `window` bytes; callback may deliver fewer (partial read) */
+        uint16_t actual = p->fetch_cb(p->fetch_ctx, pos, s_fetch_buf, window);
+        if (actual == 0u)
             return SSL_UPLOAD_ERR_FETCH;
 
+        /* Defensive clamp — callback must never return more than requested */
+        if (actual > window)
+            actual = window;
+
+        /* AT command byte count MUST equal the data length being sent */
         snprintf(s_cmd_buf, SSL_CMD_BUF_SIZE,
-                 "AT+CCHSEND=%d,%u", SESSION_ID, (unsigned)window);
+                 "AT+CCHSEND=%d,%u", SESSION_ID, (unsigned)actual);
 
         if (at_channel_send_binary(s_cmd_buf, s_fetch_buf,
-                                    (size_t)window,
+                                    (size_t)actual,
                                     SSL_SEND_TIMEOUT_MS) != AT_OK)
             return SSL_UPLOAD_ERR_SEND_BODY;
 
-        pos            += window;
-        remaining      -= window;
-        *bytes_sent_io += window;
-
-        if (p->progress_cb)
-            p->progress_cb(p->progress_ctx, *bytes_sent_io, p->file_size);
+        /* Advance by actual bytes delivered, not the requested window */
+        pos       += actual;
+        remaining -= actual;
     }
 
     return SSL_UPLOAD_OK;
@@ -376,29 +369,47 @@ static SslUploadResult_t ssl_stream_body(const SslUploadParams_t *p,
 /* -------------------------------------------------------------------------- */
 
 /*
- * ssl_read_response — issue AT+CCHRECV, capture response, parse HTTP status.
+ * ssl_read_response — issue AT+CCHRECV, capture the response, parse HTTP status.
  *
- * BUG-SSL-4: Verify that s+9..s+11 are within the null-terminated string
- * before indexing.  A truncated response would otherwise read garbage bytes.
+ * "+CCHRECV" is absent from the AT channel's URC recogniser, so the lines
+ *   "+CCHRECV:DATA,0,<n>"  and  "HTTP/1.1 NNN reason"
+ * arrive as informational text and land in s_cap_buf.
  *
- * OPTIM-SSL-1: Use the pre-built string literal for SESSION_ID=0.
+ * HTTP status is parsed manually from the three digits immediately following
+ * "HTTP/1.1 " (offset +9):
+ *
+ *   if s[9..11] are all ASCII digits:
+ *       code = (s[9]-'0')*100 + (s[10]-'0')*10 + (s[11]-'0')
+ *
+ * This replaces sscanf("%3d"), avoiding pulling ~1-2 KB of scanf machinery
+ * into the firmware image when only snprintf is otherwise needed.
+ *
+ * 2xx → SSL_UPLOAD_OK.  Any other code → SSL_UPLOAD_ERR_HTTP.
+ * AT error or missing status line → SSL_UPLOAD_ERR_RECV.
+ *
+ * Takes no params — reads from/writes to module statics only.
  */
 static SslUploadResult_t ssl_read_response(void)
 {
-    at_channel_set_capture(s_cap_buf, SSL_RECV_CAP_SIZE);
+    at_channel_set_capture(s_cap_buf, SSL_RECV_CAP_SIZE);   /* before send */
 
-    const AtResult_t ar = at_channel_send_cmd(CCHRECV_CMD, SSL_RECV_TIMEOUT_MS);
+    snprintf(s_cmd_buf, SSL_CMD_BUF_SIZE, "AT+CCHRECV=%d,0", SESSION_ID);
+    const AtResult_t ar = at_channel_send_cmd(s_cmd_buf, SSL_RECV_TIMEOUT_MS);
 
-    at_channel_set_capture(NULL, 0);
+    at_channel_set_capture(NULL, 0);   /* always clear */
 
     if (ar != AT_OK) return SSL_UPLOAD_ERR_RECV;
 
+    /* Locate "HTTP/1.1 " in capture buffer */
     const char *s = strstr(s_cap_buf, "HTTP/1.1 ");
     if (!s) return SSL_UPLOAD_ERR_RECV;
 
-    /* BUG-SSL-4: Ensure s[9], s[10], s[11] are not past the null terminator */
-    if (strlen(s) < 12u) return SSL_UPLOAD_ERR_RECV;
-
+    /*
+     * s[9], s[10], s[11] are the three status-code digits.
+     * Verify buffer bounds and that all three are decimal digits.
+     * (s_cap_buf is null-terminated so strstr result + 12 is safe if
+     *  the captured string is at least 12 chars — HTTP/1.1 + space + 3 digits.)
+     */
     const unsigned char d0 = (unsigned char)(s[9]  - '0');
     const unsigned char d1 = (unsigned char)(s[10] - '0');
     const unsigned char d2 = (unsigned char)(s[11] - '0');
@@ -411,6 +422,29 @@ static SslUploadResult_t ssl_read_response(void)
 
 /* ══════════════════════════ Header builder ══════════════════════════════════*/
 
+/*
+ * build_headers — assemble one HTTP header block into s_hdr_buf.
+ *
+ *   with_range = false:
+ *     POST <path> HTTP/1.1\r\n
+ *     Host: <host>\r\n
+ *     Content-Type: application/octet-stream\r\n
+ *     Content-Length: <body_len>\r\n
+ *     Connection: close\r\n\r\n
+ *
+ *   with_range = true:
+ *     POST <path> HTTP/1.1\r\n
+ *     Host: <host>\r\n
+ *     Content-Type: application/octet-stream\r\n
+ *     Content-Length: <body_len>\r\n
+ *     Content-Range: bytes <range_first>-<range_last>/<file_size>\r\n
+ *     Connection: close\r\n\r\n
+ *
+ * Content-Length always = body_len (bytes transmitted in this request),
+ * not file_size.  RFC 9110 §8.6.
+ *
+ * Returns bytes written on success; -1 on truncation (path/host too long).
+ */
 static int build_headers(const SslUploadParams_t *p,
                           uint32_t body_len,
                           uint32_t range_first,
@@ -456,32 +490,28 @@ static int build_headers(const SslUploadParams_t *p,
 /* ══════════════════════════ URC queue helper ════════════════════════════════*/
 
 /*
- * wait_for_urc — drain URC queue until target event arrives or deadline.
+ * wait_for_urc — drain the URC queue until the target event arrives or the
+ * deadline elapses.  Polls in 200 ms increments.
  *
- * BUG-SSL-5: Accepts start_tick from the caller so the caller can share a
- * single deadline across the AT command phase and this URC wait phase.
- *
- * BUG-SSL-3: On timeout, returns SSL_UPLOAD_OK only for HTTP_URC_CCHCLOSE
- * (non-fatal close), SSL_UPLOAD_ERR_OPEN for HTTP_URC_CCHOPEN timeout, and
- * SSL_UPLOAD_ERR_SEND_BODY for all other types.
+ * HTTP_URC_CCHOPEN: validates SESSION_ID; param==0 → OK, param≠0 → ERR_OPEN.
+ * HTTP_URC_CCHCLOSE: any outcome accepted; timeout also non-fatal.
+ * HTTP_URC_CCH_PEER_CLOSED / HTTP_URC_CCH_STOP: abort → ERR_PEER.
+ * All other types: discarded.
  */
-static SslUploadResult_t wait_for_urc(QueueHandle_t  q,
+static SslUploadResult_t wait_for_urc(QueueHandle_t q,
                                        HttpUrcType_t  want,
-                                       TickType_t     start_tick,
                                        uint32_t       timeout_ms)
 {
-    const TickType_t ticks = pdMS_TO_TICKS(timeout_ms);
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
     HttpUrcEvent_t   ev;
 
-    while ((TickType_t)(xTaskGetTickCount() - start_tick) < ticks)
+    while (xTaskGetTickCount() < deadline)
     {
-        TickType_t elapsed   = (TickType_t)(xTaskGetTickCount() - start_tick);
-        TickType_t remaining = ticks - elapsed;
+        TickType_t remaining = deadline - xTaskGetTickCount();
         TickType_t wait      = pdMS_TO_TICKS(200u);
         if (wait > remaining) wait = remaining;
 
-        if (xQueueReceive(q, &ev, wait) != pdPASS)
-            continue;
+        if (xQueueReceive(q, &ev, wait) != pdPASS) continue;
 
         if (ev.type == want)
         {
@@ -490,7 +520,7 @@ static SslUploadResult_t wait_for_urc(QueueHandle_t  q,
                 if (ev.client_idx != (int8_t)SESSION_ID) continue;
                 return (ev.param == 0) ? SSL_UPLOAD_OK : SSL_UPLOAD_ERR_OPEN;
             }
-            return SSL_UPLOAD_OK;
+            return SSL_UPLOAD_OK;   /* CCHCLOSE — any result is fine */
         }
 
         if (ev.type == HTTP_URC_CCH_PEER_CLOSED ||
@@ -498,12 +528,8 @@ static SslUploadResult_t wait_for_urc(QueueHandle_t  q,
             return SSL_UPLOAD_ERR_PEER;
     }
 
-    /* BUG-SSL-3: timeout result depends on what we were waiting for */
-    if (want == HTTP_URC_CCHCLOSE)
-        return SSL_UPLOAD_OK;        /* close timeout is non-fatal */
-    if (want == HTTP_URC_CCHOPEN)
-        return SSL_UPLOAD_ERR_OPEN;
-    return SSL_UPLOAD_ERR_SEND_BODY;
+    /* Timeout — non-fatal only for CCHCLOSE */
+    return (want == HTTP_URC_CCHCLOSE) ? SSL_UPLOAD_OK : SSL_UPLOAD_ERR_OPEN;
 }
 
 /* ══════════════════════════ Inline utilities ════════════════════════════════*/
@@ -514,10 +540,9 @@ static inline bool validate_params(const SslUploadParams_t  *p,
     return p && s
         && p->host      && p->host[0] != '\0'
         && p->path      && p->path[0] != '\0'
-        && p->fetch_cb  != NULL
+        && p->fetch_cb
         && p->file_size > 0u
-        && p->urc_queue != NULL
-        && p->port      != 0u;     /* OPTIM-SSL-2: guard against forgot-to-set port */
+        && p->urc_queue;
 }
 
 static inline uint8_t resolve_retries(const SslUploadParams_t *p)

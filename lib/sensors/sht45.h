@@ -1,5 +1,5 @@
-#ifndef __SHT40_H
-#define __SHT40_H
+#ifndef SHT45_H
+#define SHT45_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -17,4 +17,4 @@ extern "C"
 }
 #endif
 
-#endif  /* __SHT40_H */
+#endif  /* SHT45_H */

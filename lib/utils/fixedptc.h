@@ -131,10 +131,10 @@ typedef __uint128_t fixedptud;
 #define FIXEDPT_FMASK (((fixedpt)1 << FIXEDPT_FBITS) - 1)
 
 // Range of the value
-#define FIXEDPT_SMALLEST	((fixedpt)(1 << (FIXEDPT_BITS - 1)))
-#define FIXEDPT_LARGEST		((fixedpt)(~FIXEDPT_SMALLEST))
-#define FIXEDPT_SMALLEST_U	((fixedptu)0)
-#define FIXEDPT_LARGEST_U	((fixedptu)(~FIXEDPT_SMALLEST_U))
+#define FIXEDPT_SMALLEST ((fixedpt)(1 << (FIXEDPT_BITS - 1)))
+#define FIXEDPT_LARGEST ((fixedpt)(~FIXEDPT_SMALLEST))
+#define FIXEDPT_SMALLEST_U ((fixedptu)0)
+#define FIXEDPT_LARGEST_U ((fixedptu)(~FIXEDPT_SMALLEST_U))
 
 #define fixedpt_rconst(R) ((fixedpt)((R) * FIXEDPT_ONE + ((R) >= 0 ? 0.5 : -0.5)))
 #define fixedpt_fromint(I) ((fixedptd)(I) << FIXEDPT_FBITS)
@@ -184,7 +184,7 @@ extern "C"
 
 	_FIXEDPT_PROTOTYPE fixedpt fixedpt_mul(fixedpt A, fixedpt B);
 	_FIXEDPT_PROTOTYPE fixedpt fixedpt_div(fixedpt A, fixedpt B);
-	_FIXEDPT_PROTOTYPE void fixedpt_str(fixedpt A, char *str, int max_dec);
+	_FIXEDPT_PROTOTYPE int fixedpt_str(fixedpt A, char *str, int max_dec);
 	_FIXEDPT_PROTOTYPE char *fixedpt_cstr(const fixedpt A, const int max_dec);
 	_FIXEDPT_PROTOTYPE fixedpt fixedpt_sqrt(fixedpt A);
 	_FIXEDPT_PROTOTYPE fixedpt fixedpt_exp(fixedpt x);
@@ -241,8 +241,9 @@ extern "C"
 	 * 64-bit fixedpt width); If set to -2, "all" of the digits will
 	 * be returned, meaning there will be invalid, bogus digits outside the
 	 * specified precisions.
+	 * The function returns length of the output string.
 	 */
-	_FIXEDPT_FUNCTYPE void fixedpt_str(fixedpt A, char *str, int max_dec)
+	_FIXEDPT_FUNCTYPE int fixedpt_str(fixedpt A, char *str, int max_dec)
 	{
 		int ndec = 0, slen = 0;
 		char tmp[12] = {0};
@@ -300,9 +301,9 @@ extern "C"
 		} while (fr != 0 && ndec < max_dec);
 
 		if (ndec > 1 && str[slen - 1] == '0')
-			str[slen - 1] = '\0'; /* cut off trailing 0 */
-		else
-			str[slen] = '\0';
+			slen--; /* cut off trailing 0 */
+		str[slen] = '\0';
+		return (slen);
 	}
 
 	/* Converts the given fixedpt number into a string, using a static
@@ -311,7 +312,7 @@ extern "C"
 	{
 		static char str[25];
 
-		fixedpt_str(A, str, max_dec);
+		(void)fixedpt_str(A, str, max_dec);
 		return (str);
 	}
 
@@ -380,8 +381,8 @@ extern "C"
 		/* Taylor */
 		R = FIXEDPT_TWO +
 			fixedpt_mul(z, EXP_P[0] + fixedpt_mul(z, EXP_P[1] +
-			fixedpt_mul(z, EXP_P[2] + fixedpt_mul(z, EXP_P[3] +
-			fixedpt_mul(z, EXP_P[4])))));
+														 fixedpt_mul(z, EXP_P[2] + fixedpt_mul(z, EXP_P[3] +
+																									  fixedpt_mul(z, EXP_P[4])))));
 		xp = FIXEDPT_ONE + fixedpt_div(fixedpt_mul(x, FIXEDPT_TWO), R - x);
 		if (k < 0)
 			k = FIXEDPT_ONE >> (-k >> FIXEDPT_FBITS);
@@ -422,12 +423,12 @@ extern "C"
 		z = fixedpt_mul(s, s);
 		w = fixedpt_mul(z, z);
 		R = fixedpt_mul(w, LG[1] +
-			   fixedpt_mul(w, LG[3] +
-			   fixedpt_mul(w, LG[5]))) +
+							   fixedpt_mul(w, LG[3] +
+												  fixedpt_mul(w, LG[5]))) +
 			fixedpt_mul(z, LG[0] +
-			   fixedpt_mul(w, LG[2] +
-			   fixedpt_mul(w, LG[4] +
-			   fixedpt_mul(w, LG[6]))));
+							   fixedpt_mul(w, LG[2] +
+												  fixedpt_mul(w, LG[4] +
+																	 fixedpt_mul(w, LG[6]))));
 		return (fixedpt_mul(LN2, (log2 << FIXEDPT_FBITS)) + f - fixedpt_mul(s, f - R));
 	}
 
@@ -492,12 +493,12 @@ extern "C"
 		// Minimax polynomial approximation for sin(x)
 		fixedpt x2 = fixedpt_mul(angle, angle); // x^2
 		return (fixedpt_mul(angle, fixedpt_add(c[0],
-				   fixedpt_mul(x2, fixedpt_add(c[1],
-				   fixedpt_mul(x2, fixedpt_add(c[2],
-				   fixedpt_mul(x2, fixedpt_add(c[3],
-				   fixedpt_mul(x2, fixedpt_add(c[4],
-				   fixedpt_mul(x2, fixedpt_add(c[5],
-				   fixedpt_mul(x2, c[6]))))))))))))));
+											   fixedpt_mul(x2, fixedpt_add(c[1],
+																		   fixedpt_mul(x2, fixedpt_add(c[2],
+																									   fixedpt_mul(x2, fixedpt_add(c[3],
+																																   fixedpt_mul(x2, fixedpt_add(c[4],
+																																							   fixedpt_mul(x2, fixedpt_add(c[5],
+																																														   fixedpt_mul(x2, c[6]))))))))))))));
 	}
 
 	/* Returns the cosine of the given fixedpt number */
@@ -546,12 +547,12 @@ extern "C"
 		fixedpt x2 = fixedpt_mul(angle, angle); // x^2
 
 		fixedpt val = fixedpt_add(c[0],
-						  fixedpt_mul(x2, fixedpt_add(c[1],
-						  fixedpt_mul(x2, fixedpt_add(c[2],
-						  fixedpt_mul(x2, fixedpt_add(c[3],
-						  fixedpt_mul(x2, fixedpt_add(c[4],
-						  fixedpt_mul(x2, fixedpt_add(c[5],
-						  fixedpt_mul(x2, c[6]))))))))))));
+								  fixedpt_mul(x2, fixedpt_add(c[1],
+															  fixedpt_mul(x2, fixedpt_add(c[2],
+																						  fixedpt_mul(x2, fixedpt_add(c[3],
+																													  fixedpt_mul(x2, fixedpt_add(c[4],
+																																				  fixedpt_mul(x2, fixedpt_add(c[5],
+																																											  fixedpt_mul(x2, c[6]))))))))))));
 
 		return ((flip_cos_sign == 0) ? val : -val);
 	}
@@ -653,12 +654,12 @@ extern "C"
 		// Polynomial computation
 		fixedpt z2 = fixedpt_mul(z, z);
 		theta = (fixedpt_mul(z, fixedpt_add(E[0],
-					fixedpt_mul(z2, fixedpt_add(E[1],
-					fixedpt_mul(z2, fixedpt_add(E[2],
-					fixedpt_mul(z2, fixedpt_add(E[3],
-					fixedpt_mul(z2, fixedpt_add(E[4],
-					fixedpt_mul(z2, fixedpt_add(E[5],
-					fixedpt_mul(z2, E[6]))))))))))))));
+											fixedpt_mul(z2, fixedpt_add(E[1],
+																		fixedpt_mul(z2, fixedpt_add(E[2],
+																									fixedpt_mul(z2, fixedpt_add(E[3],
+																																fixedpt_mul(z2, fixedpt_add(E[4],
+																																							fixedpt_mul(z2, fixedpt_add(E[5],
+																																														fixedpt_mul(z2, E[6]))))))))))))));
 
 		theta = fixedpt_add(theta, bias_atan[fixedpt_toint(c)]);
 

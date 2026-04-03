@@ -8,12 +8,17 @@
 #include "ui.h"
 #include "nv_database.h"
 
+extern Weather_Data_t weather_data; // Current weather data, defined in maintask.c
+
 void ucctask(void *params)
 {
+    TickType_t xLastWakeTime;
+
     (void)params;
+    xLastWakeTime = xTaskGetTickCount();
 
     while(1)
     {
-
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(100));
     }
 }

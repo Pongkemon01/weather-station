@@ -1,8 +1,8 @@
-#ifndef __A7670_SSL_UPLOADER_H
-#define __A7670_SSL_UPLOADER_H
+#ifndef SSL_UPLOADER_H
+#define SSL_UPLOADER_H
 
 /**
- * @file  a7670_ssl_uploader.h
+ * @file  ssl_uploader.h
  * @brief HTTPS binary upload over the A7670E SSL/CCH service — two modes.
  *
  * ── Modes ────────────────────────────────────────────────────────────────────
@@ -64,13 +64,15 @@
  *     Total static:      800 B
  *
  *   Stack peaks (all call frames sequential, not nested):
- *     Public functions (locals only):        ~20 B
- *     ssl_stream_body (locals + urc):        ~16 B
- *     wait_for_urc (locals + ev):            ~12 B
- *     Peak simultaneous (outer + callee):    ~36 B
+ *     Public functions (locals only):       ~16 B
+ *     ssl_stream_body (locals + urc):       ~12 B
+ *     wait_for_urc (locals + ev):           ~12 B
+ *     Peak simultaneous (outer + callee):   ~28 B
+ *
+ *   SslUploadParams_t:   32 B (no padding)
+ *   SslUploadSession_t:   8 B
  *
  *   Task stack recommendation: 192 words (768 B) including FreeRTOS overhead.
- *   (Down from 512 words / 2048 B before any optimisation.)
  *
  * ── Prerequisites ─────────────────────────────────────────────────────────────
  *   UART_Sys_Init() + UART_Sys_Register()
@@ -177,31 +179,25 @@ typedef enum {
 
 /**
  * SPI flash fetch callback.
- * Read @p len bytes at file offset @p offset into @p buf.
- * @p buf points to the module's internal s_fetch_buf (SSL_FETCH_WINDOW bytes).
- * @return true on success; false on SPI error or out-of-bounds offset.
- */
-typedef bool (*SslFetchCb_t)(void     *ctx,
-                              uint32_t  offset,
-                              uint8_t  *buf,
-                              uint16_t  len);
-
-/**
- * Progress callback — optional, both modes.
  *
- * Chunked: fired after each confirmed chunk.  @p bytes is session->bytes_done.
- *          Safe point to persist session to NVM.
- * Stream:  fired after each SSL_FETCH_WINDOW window is sent (unconfirmed).
- *          @p bytes is cumulative bytes sent in the current attempt.
- *          Persist session only after ssl_upload_stream() returns OK.
+ * Read up to @p len bytes starting at file offset @p offset into @p buf.
+ * @p buf points to the module's internal s_fetch_buf; its capacity is
+ * SSL_FETCH_WINDOW bytes.  Write no more than @p len bytes.
  *
- * @param ctx        Opaque pointer from SslUploadParams_t.progress_ctx.
- * @param bytes      Bytes confirmed (chunked) or sent this attempt (stream).
- * @param file_size  Total file size.
+ * Partial reads are allowed: the callback may return any value from 1 to
+ * @p len when only that many bytes are available (e.g. last page not fully
+ * written, sector boundary, or DMA transfer limit).  The uploader will send
+ * exactly the returned number of bytes and advance all counters accordingly,
+ * then request the remainder on the next call.
+ *
+ * Returning a value greater than @p len is undefined behaviour.
+ *
+ * @return Number of bytes written to @p buf (1 … @p len), or 0 on error.
  */
-typedef void (*SslProgressCb_t)(void    *ctx,
-                                 uint32_t bytes,
-                                 uint32_t file_size);
+typedef uint16_t (*SslFetchCb_t)(void     *ctx,
+                                  uint32_t  offset,
+                                  uint8_t  *buf,
+                                  uint16_t  len);
 
 /* ══════════════════════════ Data types ══════════════════════════════════════*/
 
@@ -223,25 +219,23 @@ typedef struct {
 } SslUploadSession_t;
 
 /**
- * Upload parameters — 40 bytes, no internal padding.
+ * Upload parameters — 32 bytes, no internal padding.
  *
  * All pointer fields must remain valid until the upload call returns.
  */
 typedef struct {
     /* Pointers (4 B each on 32-bit MCU) */
-    const char      *host;         /**< Server hostname, e.g. "api.example.com". */
-    const char      *path;         /**< URL path, e.g. "/v1/upload".             */
-    SslFetchCb_t     fetch_cb;     /**< SPI flash read — must not be NULL.        */
-    void            *fetch_ctx;    /**< Passed to fetch_cb unchanged.             */
-    QueueHandle_t    urc_queue;    /**< Same queue passed to at_channel_init().   */
-    SslProgressCb_t  progress_cb;  /**< NULL = disabled.                          */
-    void            *progress_ctx; /**< Passed to progress_cb unchanged.          */
+    const char      *host;       /**< Server hostname, e.g. "api.example.com". */
+    const char      *path;       /**< URL path, e.g. "/v1/upload".             */
+    SslFetchCb_t     fetch_cb;   /**< SPI flash read — must not be NULL.        */
+    void            *fetch_ctx;  /**< Passed to fetch_cb unchanged.             */
+    QueueHandle_t    urc_queue;  /**< Same queue passed to at_channel_init().   */
     /* 32-bit scalars */
-    uint32_t         file_size;    /**< Total file size in bytes (> 0).           */
-    uint32_t         chunk_size;   /**< Chunked: bytes per POST. 0 = default.     */
+    uint32_t         file_size;  /**< Total file size in bytes (> 0).           */
+    uint32_t         chunk_size; /**< Chunked: bytes per POST. 0 = default.     */
     /* Small scalars packed at end — no padding gaps */
-    uint16_t         port;         /**< TCP port, typically 443.                  */
-    uint8_t          max_retries;  /**< Per-chunk / per-attempt limit. 0=default. */
+    uint16_t         port;       /**< TCP port, typically 443.                  */
+    uint8_t          max_retries;/**< Per-chunk / per-attempt limit. 0=default. */
     /**
      * Stream mode only.
      * true:  retry resumes from session->bytes_done with a Content-Range header.
@@ -291,4 +285,4 @@ SslUploadResult_t ssl_upload_stream(const SslUploadParams_t *params,
 }
 #endif
 
-#endif /* __A7670_SSL_UPLOADER_H */
+#endif /* SSL_UPLOADER_H */

@@ -99,7 +99,7 @@ const osThreadAttr_t UserControlTask_attributes = {
 osThreadId_t SslUploadTaskHandle;
 const osThreadAttr_t SslUploadTask_attributes = {
     .name = "sslupload",
-    .stack_size = 512 * 2,
+    .stack_size = 512 * 4,
     .priority = (osPriority_t)osPriorityNormal,
 };
 
@@ -197,26 +197,8 @@ void MX_FREERTOS_Init(void)
         {
             LED_DEBUG_YELLOW_OFF();
             ui_lcd_printXY(0, 1, "Weather Station");
-            ui_lcd_printXY(1, 0, "Stat : ");
         }
     }
-
-    // 2. Weather database
-    if ((system_ready_status.fram_ready = DB_Init(&hspi1)))
-        ui_lcd_print("D");
-    else
-        ui_lcd_print("d");
-
-    // 3. BMP390 and SHT41
-    if ((system_ready_status.bmp390_ready = bmp390_init(&hi2c2)))
-        ui_lcd_print("P");
-    else
-        ui_lcd_print("p");
-
-    if ((system_ready_status.sht45_ready = sht45_init(&hi2c2)))
-        ui_lcd_print("T");
-    else
-        ui_lcd_print("t");
 
     /* USER CODE END Init */
 

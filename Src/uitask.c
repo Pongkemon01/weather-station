@@ -53,6 +53,8 @@ void uitask(void *params)
     /* Initial data structure */
     if ((ui_interface.mutex = xSemaphoreCreateMutex()) == NULL)
         LED_DEBUG_RED_ON();
+    else
+        LED_DEBUG_RED_OFF();
 
     if (ui_interface.mutex != NULL && system_ready_status.ui_ready)
         ui_lcd_clear();
@@ -68,16 +70,17 @@ void uitask(void *params)
         if (system_ready_status.ui_ready)
         {
             // 1. Read switches
-            current_sw_status = ui_key_status();
+            // Switches are active-low, therefore, we invert the status
+            current_sw_status = ~ui_key_status() & 0x0F;
 
             // Parse each switch. loop cycle time is 20ms. appropriate for de-bouncing
-            if ((current_sw_status & 0x01) != (previous_sw_status & 0x01))
+            if ((current_sw_status & 0x01) == (previous_sw_status & 0x01))
                 ui_interface.key_menu = (current_sw_status & 0x01);
-            if ((current_sw_status & 0x02) != (previous_sw_status & 0x02))
+            if ((current_sw_status & 0x02) == (previous_sw_status & 0x02))
                 ui_interface.key_enter = (current_sw_status & 0x02);
-            if ((current_sw_status & 0x04) != (previous_sw_status & 0x04))
+            if ((current_sw_status & 0x04) == (previous_sw_status & 0x04))
                 ui_interface.key_down = (current_sw_status & 0x04);
-            if ((current_sw_status & 0x08) != (previous_sw_status & 0x08))
+            if ((current_sw_status & 0x08) == (previous_sw_status & 0x08))
                 ui_interface.key_up = (current_sw_status & 0x08);
 
             previous_sw_status = current_sw_status;

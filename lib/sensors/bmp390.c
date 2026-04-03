@@ -408,6 +408,9 @@ bool bmp390_get_sensor_data(float *temperature, float *pressure)
     uint32_t adc_temp;
     uint32_t adc_press;
 
+    if (temperature == NULL || pressure == NULL)
+        return false;
+
     /* Read raw data */
     if (!(bmp390_get_reg(BMP390_REG_DATA, buf, 6)))
     {

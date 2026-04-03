@@ -1,5 +1,5 @@
-#ifndef __BMP390_H
-#define __BMP390_H
+#ifndef BMP390_H
+#define BMP390_H
 
 #include <stdint.h>
 #include <stdbool.h>

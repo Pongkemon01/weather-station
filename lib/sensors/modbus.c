@@ -210,7 +210,8 @@ bool modbus_read_register(uint8_t addr, uint16_t reg_num,
         crc = crc_485(rx_pkt.payload, (uint16_t)(rx_pkt.length - 2u));
 
         if ((rx_pkt.payload[rx_pkt.length - 2u] == (uint8_t)(crc & 0xFFu)) &&
-            (rx_pkt.payload[rx_pkt.length - 1u] == (uint8_t)(crc >> 8u)))
+            (rx_pkt.payload[rx_pkt.length - 1u] == (uint8_t)(crc >> 8u)) &&
+            (rx_pkt.length >= (5u + len * 2u)))           /* validate payload depth */
         {
             /* Extract register values; data starts at payload[3] (after
              * addr, FC, byte_count). */

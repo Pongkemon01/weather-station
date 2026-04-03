@@ -242,8 +242,9 @@ bool modem_get_datetime(char *buf)
     AtResult_t r = at_channel_send_cmd("AT+CCLK?", 1000u);
     at_channel_set_capture(NULL, 0);
 
-    /* cap contains "+CCLK: <time>" — prefix is 7 chars, time is 20 chars. */
-    if (r == AT_OK && strlen(cap) == 27u)
+    /* cap contains "+CCLK: <time>" followed by '\n'.
+     * Prefix is 7 chars, time is 20 chars, plus '\n' = 28. Use >= 27 for safety. */
+    if (r == AT_OK && strlen(cap) >= 27u)
     {
         memcpy(buf, &cap[7], 20u);
         buf[20] = '\0';

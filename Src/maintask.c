@@ -47,13 +47,99 @@ extern osThreadId_t MainTaskHandle;      // MainTaskHandle was casted from TaskH
 extern osThreadId_t SslUploadTaskHandle; // SslUploadTaskHandle was casted from TaskHandle_t to osThreadId_t
 
 /* Current weather data */
-Meta_Data_t *db_meta_data = NULL;
+Meta_Data_t db_meta_data;
 Weather_Data_t weather_data = {0};
 float accum_rainfall = 0.0f;
 
 /* ------------------------------------------------------------------------ */
+static inline bool SaveRecordToSD(FIL *file, Weather_Data_Packed_t *data)
+{
+    /*
+     * Line structure:
+     * dd-mmm-yyyy hh:mm:ss,-ttt.tt,hhh.hh,ppp.pp,llll,rrr.rr,eee.ee,bb.bb
+     * Total length = 67 characters + "\r\n" = 69 characters
+     */
+    const char *month_str[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    static char line[80], *pos;
+    static RTC_DateTime_t dt;
+    unsigned int len, written;
+
+    if (file == NULL || data == NULL)
+        return false;
+
+    get_datetime_from_epoch(data->time_stamp, &dt);
+
+    pos = line;
+    pos += sprintf(pos, "%02d-%s-20%02d %02d:%02d:%02d,", dt.day, month_str[dt.month - 1], dt.year, dt.hours, dt.minutes, dt.seconds);
+    pos += fixedpt_str(data->temperature, pos, 2);
+    *pos++ = ',';
+    pos += fixedpt_str(data->humidity, pos, 2);
+    *pos++ = ',';
+    pos += fixedpt_str(data->pressure, pos, 2);
+    *pos++ = ',';
+    pos += sprintf(pos, "%u,", data->light_par);
+
+    // CHeck pos is likely to overflow here if strlen(line) >= 60
+    *pos = '\0'; // Temporary null-termination for strlen() check
+    if (strlen(line) >= 60)
+        return false;
+
+    pos += fixedpt_str(data->rainfall, pos, 2);
+    *pos++ = ',';
+    pos += fixedpt_str(data->dew_point, pos, 2);
+    *pos++ = ',';
+    pos += fixedpt_str(data->bus_value, pos, 2);
+    *pos++ = '\r';
+    *pos++ = '\n';
+    *pos = '\0';
+
+    // Write the line to SD card
+    len = strlen(line);
+    if (f_write(file, line, len, &written) != FR_OK || written != len)
+        return false;
+
+    return true;
+}
+
+/* ------------------------------------------------------------------------ */
+#if __STDC_VERSION__ >= 201112L || __cplusplus >= 201103L
+#define U16_LITERAL(x) u##x
+#else
+// Fallback for older compilers - may not be strictly UTF-16
+#define U16_LITERAL(x) L##x
+#endif
 static inline void SaveToSD(void)
 {
+    static const char *header = "Date Time,Temperature (C),Humidity (%Rh),Pressure (kPa),Light PAR (umol/s*m^2),Rainfall (mm/hr),Dew Point (C),BUS\r\n";
+    static const TCHAR *filename = U16_LITERAL("weather_data.csv");
+    FIL file;
+    Weather_Data_Packed_t data;
+    uint16_t total_to_sd, i;
+
+    if (!(system_ready_status.sd_detected) || system_ready_status.sd_write_protected)
+        return;
+    if (f_open(&file, filename, FA_OPEN_APPEND | FA_WRITE) != FR_OK)
+    {
+        if (f_open(&file, filename, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK) // Try to create a new file if failed to open existing file
+            return;
+
+        // Write header line for new file
+        f_write(&file, header, strlen(header), NULL);
+        f_sync(&file);
+    }
+
+    total_to_sd = DB_GetTotalToSD();
+    for (i = 0; i < total_to_sd; i++)
+    {
+        if (!DB_ToSDwithOffset(i, &data))
+            break; // Failed to read data from FRAM, stop the process
+
+        if (!SaveRecordToSD(&file, &data))
+            break; // Failed to write data to SD card, stop the process
+    }
+    f_close(&file);
+
+    DB_IncSDTail(i); // Update SD tail in database after successfully saving "i" records to SD card
 }
 
 /* ------------------------------------------------------------------------ */
@@ -140,11 +226,11 @@ static inline void SensorUpdate(void)
     /* Processing sensors data */
 
     // Adjust data
-    sht45_temperature += db_meta_data->temperature_adj;
-    sht45_humidity += db_meta_data->humidity_adj;
-    bmp390_temperature += db_meta_data->temperature_adj;
-    bmp390_pressure += db_meta_data->pressure_adj;
-    light_par += db_meta_data->light_adj;
+    sht45_temperature += db_meta_data.temperature_adj;
+    sht45_humidity += db_meta_data.humidity_adj;
+    bmp390_temperature += db_meta_data.temperature_adj;
+    bmp390_pressure += db_meta_data.pressure_adj;
+    light_par += db_meta_data.light_adj;
 
     // EMA fusion
     weather_data.temperature = ema(weather_data.temperature, (sht45_temperature + bmp390_temperature) / 2.0f);
@@ -169,7 +255,7 @@ static inline void SensorUpdate(void)
     accum_rainfall += rainfall;
     if (weather_data.sampletime.minutes == 0 && weather_data.sampletime.seconds == 0)
     {
-        weather_data.rainfall = accum_rainfall + db_meta_data->rainfall_adj;
+        weather_data.rainfall = accum_rainfall + db_meta_data.rainfall_adj;
         accum_rainfall = 0.0f;
     }
 }
@@ -224,7 +310,7 @@ static inline bool BUSCalc(float *BUS)
         return false; // Database errors
 
     // Calculate total records for 1 day
-    total_data_per_hr = 60u / (uint16_t)(db_meta_data->sampling_interval);
+    total_data_per_hr = 60u / (uint16_t)(db_meta_data.sampling_interval);
     total_data = 24u * total_data_per_hr;
     // Calculate the starting record number of data
     db_index = (DB_GetHead() - total_data) & 0x7FFF;
@@ -319,6 +405,13 @@ void maintask(void *params)
         system_ready_status.modbus_ready = modbus_init(&huart1);
     }
 
+    // 2. Weather database
+    system_ready_status.fram_ready = DB_Init(&hspi1);
+
+    // 3. BMP390 and SHT41
+    system_ready_status.bmp390_ready = bmp390_init(&hi2c2);
+    system_ready_status.sht45_ready = sht45_init(&hi2c2);
+
     // 4. Real-time clock (RTC)
     if (datetime_sync_with_best_source() == TIME_SOURCE_NONE)
     {
@@ -334,7 +427,9 @@ void maintask(void *params)
     }
 
     ui_interface.led_red = LED_OFF;
-    db_meta_data = DB_GetMeta();
+
+    /* Snapshot current metadata */
+    (void)DB_GetMeta(&db_meta_data);
 
     // Enable 1Hz interrupt
     HAL_NVIC_EnableIRQ(RTC_WKUP_IRQn);
@@ -346,7 +441,6 @@ void maintask(void *params)
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         /* Main operation for every 1 second */
-
         /* Update SD Card status */
         system_ready_status.sd_detected = SD_INSERTED_STATUS();
         system_ready_status.sd_write_protected = SD_WRITE_PROTECTED_STATUS();
@@ -387,9 +481,13 @@ void maintask(void *params)
 
         /* -------------------------------------------------------- */
         /* Sensors operation */
-        // Measure sensors every 10 second
+
+        // Measure sensors every 10 second. Also update metadata
         if (weather_data.sampletime.seconds % 10 == 0)
         {
+            /* Snapshot current metadata*/
+            (void)DB_GetMeta(&db_meta_data);
+
             SensorUpdate();
             weather_data.dew_point = DewPointCalc(weather_data.humidity, weather_data.temperature);
         }
@@ -405,13 +503,18 @@ void maintask(void *params)
 
         /* Save sensor data to FRAM when every configured datetime. */
         if (weather_data.sampletime.seconds == 0 &&
-            (weather_data.sampletime.minutes % db_meta_data->sampling_interval) == 0)
+            (weather_data.sampletime.minutes % db_meta_data.sampling_interval) == 0)
         {
             Weather_Data_Packed_t data;
 
             // Save current measurement to FRAM database
             PackData(&weather_data, &data);
-            DB_AddData(&data);
+            if (!DB_AddData(&data))
+            {
+                printf("Failed to add data to FRAM\r\n");
+                ui_interface.led_red = LED_ON;
+                continue; // Failed to add data to FRAM, skip the rest of this iteration
+            }
 
             // Save unsaved data to SD card
             if (system_ready_status.sd_detected && !system_ready_status.sd_write_protected)

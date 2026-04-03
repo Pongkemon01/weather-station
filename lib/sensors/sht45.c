@@ -79,6 +79,9 @@ bool sht45_get_sensor_data(float *temperature, float *humidity)
     uint8_t buf[6];
     uint16_t adc_data;
 
+    if (temperature == NULL || humidity == NULL)
+        return false;
+
     *temperature = 0.0f;
     *humidity = 0.0f;
 
@@ -86,16 +89,16 @@ bool sht45_get_sensor_data(float *temperature, float *humidity)
     if (!(sht45_get_reg(SHT45_REG_DATA, buf, 6)))
         return false;
 
-    /* Parse data */
+    /* Parse data — temperature first (bytes 0-2), then humidity (bytes 3-5) per SHT45 datasheet */
     adc_data = (uint16_t)((uint16_t)buf[0] << 8) | (uint16_t)buf[1];
     if (sht45_crc8_16bit_calc(adc_data) != buf[2])
         return false;
-    *humidity = ((float)adc_data) * 0.001907377737f - 6.0f;
+    *temperature = ((float)adc_data) * 0.002670328832f - 45.0f;
 
     adc_data = (uint16_t)((uint16_t)buf[3] << 8) | (uint16_t)buf[4];
     if (sht45_crc8_16bit_calc(adc_data) != buf[5])
         return false;
-    *temperature = ((float)adc_data) * 0.002670328832f - 45.0f;
+    *humidity = ((float)adc_data) * 0.001907377737f - 6.0f;
 
     return true;
 }
