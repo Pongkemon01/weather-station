@@ -240,3 +240,29 @@ bool ui_lcd_printXY(uint8_t col, uint8_t row, char *str)
         return false;
     return(ui_lcd_print(str));
 }
+
+bool ui_lcd_printline(uint8_t row, char *str)
+{
+    uint8_t i;
+
+    if(!(ui_lcd_set_cursor(0, row)))
+        return false;
+
+    i = 0;
+    while(*str && i < 16)
+    {
+        if(!(ui_lcd_putchar(*str)))
+            return false;
+        str++;
+        i++;
+    }
+
+    // Pad the rest of the line with spaces
+    while(i < 16)
+    {
+        if(!(ui_lcd_putchar(' ')))
+            return false;
+        i++;
+    }
+    return true;
+}

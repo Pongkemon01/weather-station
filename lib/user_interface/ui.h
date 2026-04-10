@@ -31,6 +31,8 @@ extern "C"
     bool ui_lcd_putchar(char c);
     bool ui_lcd_print(char *str);
     bool ui_lcd_printXY(uint8_t col, uint8_t row, char *str);
+    /* Print a string to a specific line. If the string is shorter than the line, it will be padded with spaces */
+    bool ui_lcd_printline(uint8_t row, char *str);
 
 #ifdef __cplusplus
 }

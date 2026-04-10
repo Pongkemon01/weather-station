@@ -41,7 +41,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
     /* Ready status of each peripheral */
-    typedef struct
+    typedef struct __attribute__((packed))
     {
         bool ui_ready;
         bool usart_ready;
@@ -69,7 +69,7 @@ extern "C" {
     typedef struct
     {
         // LCD
-        char disp[2][16];      // Display buffer
+        char disp[2][17];      // Display buffer
         bool lcd_need_updated; // "disp" contains new data needed to update the lcd
 
         // LCD Back-light
@@ -77,6 +77,8 @@ extern "C" {
 
         // LCD Cursor
         bool lcd_cursor_on;
+        uint8_t lcd_cursor_row; // 0 or 1
+        uint8_t lcd_cursor_col; // 0–15
 
         // LED
         UI_LED_State_t led_red;   // Desire status of red LED
@@ -89,7 +91,8 @@ extern "C" {
         bool key_menu;
 
         /*
-         * Data in this structure are used for communication between UI task and other tasks.
+         * Data in this structure, especially the display buffer (disp[][]),
+         * are used for communication between UI task and other tasks.
          * Therefore, it is a shared data requiring protection.
          */
         SemaphoreHandle_t mutex;

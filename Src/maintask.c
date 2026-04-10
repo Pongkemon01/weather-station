@@ -131,7 +131,7 @@ static inline void SaveToSD(void)
     total_to_sd = DB_GetTotalToSD();
     for (i = 0; i < total_to_sd; i++)
     {
-        if (!DB_ToSDwithOffset(i, &data))
+        if (!(system_ready_status.fram_ready = DB_ToSDwithOffset(i, &data)))
             break; // Failed to read data from FRAM, stop the process
 
         if (!SaveRecordToSD(&file, &data))
@@ -139,7 +139,8 @@ static inline void SaveToSD(void)
     }
     f_close(&file);
 
-    DB_IncSDTail(i); // Update SD tail in database after successfully saving "i" records to SD card
+    if (i > 0)
+        system_ready_status.fram_ready = DB_IncSDTail(i); // Update SD tail in database after successfully saving "i" records to SD card
 }
 
 /* ------------------------------------------------------------------------ */
@@ -205,7 +206,7 @@ static inline void SensorUpdate(void)
     uint16_t light_par;
 
     if (system_ready_status.bmp390_ready)
-        bmp390_get_sensor_data(&bmp390_temperature, &bmp390_pressure);
+        system_ready_status.bmp390_ready = bmp390_get_sensor_data(&bmp390_temperature, &bmp390_pressure);
     else
     {
         bmp390_temperature = 0.0f;
@@ -213,7 +214,7 @@ static inline void SensorUpdate(void)
     }
 
     if (system_ready_status.sht45_ready)
-        sht45_get_sensor_data(&sht45_temperature, &sht45_humidity);
+        system_ready_status.sht45_ready = sht45_get_sensor_data(&sht45_temperature, &sht45_humidity);
     else
     {
         sht45_temperature = 0.0f;
@@ -299,8 +300,8 @@ static inline float DewPointCalc(float RH, float T) // RH in %, T in C (such as 
 static inline bool BUSCalc(float *BUS)
 {
     Weather_Data_Packed_t db_data;
-    uint32_t current_epoch;
-    uint16_t db_index, total_data, total_data_per_hr;
+    uint32_t current_epoch, start_epoch;
+    uint16_t db_index, total_data, total_data_per_hr, total_valid_data = 0;
     float Tavg;
     uint8_t Lw, Rh;
 
@@ -310,14 +311,17 @@ static inline bool BUSCalc(float *BUS)
         return false; // Database errors
 
     // Calculate total records for 1 day
-    total_data_per_hr = 60u / (uint16_t)(db_meta_data.sampling_interval);
-    total_data = 24u * total_data_per_hr;
+    total_data = 24u * (60u / (uint16_t)(db_meta_data.sampling_interval));   // Estimate total data for 24 hours.
+    if(DB_GetTotalData() < total_data)
+        return false; // Not enough data for calculation
+
     // Calculate the starting record number of data
     db_index = (DB_GetHead() - total_data) & 0x7FFF;
 
     // Verify that the database timestamp is correct.
     current_epoch = get_epoch_from_datetime(&weather_data.sampletime);
-    if (!DB_GetData(db_index, &db_data))
+    start_epoch = current_epoch - SECONDS_IN_DAY;
+    if (!(system_ready_status.fram_ready = DB_GetData(db_index, &db_data)))
         return false; // Failed to read database
     if (db_data.time_stamp != current_epoch - SECONDS_IN_DAY)
         return false; // Database timestamp is incorrect
@@ -328,9 +332,13 @@ static inline bool BUSCalc(float *BUS)
     Rh = 0;
     for (uint16_t i = 0; i < total_data; i++)
     {
-        if (!DB_GetData(db_index, &db_data))
+        if (!(system_ready_status.fram_ready = DB_GetData(db_index, &db_data)))
             return false; // Failed to read database
 
+        if(db_data.time_stamp < start_epoch)
+            continue; // Skip old data that is outside the 24-hour window
+
+        total_valid_data++;
         Tavg += fixedpt_tofloat(db_data.temperature);
         if (db_data.humidity > fixedpt_rconst(90.0))
             Rh++;
@@ -338,7 +346,8 @@ static inline bool BUSCalc(float *BUS)
             Lw++;
         db_index = (db_index + 1) & 0x7FFF;
     }
-    Tavg /= (float)total_data;
+    Tavg /= (float)total_valid_data;
+    total_data_per_hr = total_valid_data / 24u; // Count in the unit of hour (not per sampling)
     Rh /= total_data_per_hr; // Count in the unit of hour (not per sampling)
     Lw /= total_data_per_hr;
 
@@ -394,6 +403,9 @@ void maintask(void *params)
     /* Second stage of initialization : After RTOS scheduler */
     /* Now, all ui calls must be done through ui_task */
 
+    ui_interface.led_red = LED_OFF;
+    ui_interface.led_green = LED_OFF;
+
     // 1. UART subsystem
     if ((system_ready_status.usart_ready = UART_Sys_Init()))
     {
@@ -416,17 +428,15 @@ void maintask(void *params)
     if (datetime_sync_with_best_source() == TIME_SOURCE_NONE)
     {
         system_ready_status.datetime_ready = false;
-        ui_interface.led_green = LED_BLINK;
+        ui_interface.led_red = LED_ON;
         LED_DEBUG_YELLOW_ON();
     }
     else
     {
         system_ready_status.datetime_ready = true;
-        ui_interface.led_green = LED_ON;
+        ui_interface.led_red = LED_OFF;
         LED_DEBUG_YELLOW_OFF();
     }
-
-    ui_interface.led_red = LED_OFF;
 
     /* Snapshot current metadata */
     (void)DB_GetMeta(&db_meta_data);
@@ -452,20 +462,20 @@ void maintask(void *params)
         {
             if (datetime_sync_with_best_source() == TIME_SOURCE_NONE)
             {
-                ui_interface.led_green = LED_BLINK;
+                ui_interface.led_red = LED_ON;
                 LED_DEBUG_YELLOW_ON();
                 continue; // Still unable to sync time.
             }
             else
             {
-                ui_interface.led_green = LED_ON;
+                ui_interface.led_red = LED_OFF;
                 LED_DEBUG_YELLOW_OFF();
             }
         }
 
         if (!datetime_get_datetime_from_rtc(&(weather_data.sampletime)))
         {
-            ui_interface.led_red = LED_ON;
+            ui_interface.led_red = LED_BLINK;
             LED_DEBUG_RED_ON();
             continue; // Unable to get time from RTC, we cannot do any thing.
         }
@@ -509,10 +519,10 @@ void maintask(void *params)
 
             // Save current measurement to FRAM database
             PackData(&weather_data, &data);
-            if (!DB_AddData(&data))
+            if (!(system_ready_status.fram_ready = DB_AddData(&data)))
             {
                 printf("Failed to add data to FRAM\r\n");
-                ui_interface.led_red = LED_ON;
+                ui_interface.led_green = LED_BLINK;
                 continue; // Failed to add data to FRAM, skip the rest of this iteration
             }
 
@@ -522,6 +532,11 @@ void maintask(void *params)
                 SaveToSD();
             }
         }
+
+        if (system_ready_status.fram_ready)
+            ui_interface.led_green = LED_ON;
+        else
+            ui_interface.led_green = LED_BLINK;
 
         /* Trig the SSL upload task to activate twice daily */
         if (weather_data.sampletime.seconds == 0 &&
