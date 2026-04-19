@@ -75,6 +75,7 @@ Implement phases **strictly in order**. Each phase must pass all listed tests be
 - [x] P3-4 Add `OtaManagerTask` to `MX_FREERTOS_Init()` in `Src/freertos.c`
 - [x] P3-5 Add `xTaskNotify` in `ssluploadtask` to wake `OtaManagerTask` after upload
 - [x] P3-6 Implement `ota_confirm_success()`; added `build_src_filter = +<*> +<../shared/*>` to app env — build ✓: app 22.7% RAM / 9.3% Flash
+- [x] P3-6.1 Fix R-11 (NTP URC never awaited): add `at_channel_send_cntp(12000u)` to AT channel; suppresses immediate OK, signals AT_OK only on `+CNTP: 0` URC and AT_ERROR on any non-zero err code; modem init in `Modem_Module_Init()` now fails fast if NTP sync fails — build ✓ both envs
 - [ ] P3-7 Test: server version == device version → no download initiated ✓
 - [ ] P3-8 Test: server version > device version → full OTA state machine completes ✓
 

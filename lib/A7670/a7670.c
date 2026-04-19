@@ -45,13 +45,16 @@ static QueueHandle_t urc_queue = NULL;
  *   4. Apply volatile SSL configuration (lost on power cycle).
  *
  * =============================================================================
- * BUG-A7670-1  (time sync: AT+CNTP has no effect without AT+CNTP execute)
+ * BUG-A7670-1  (time sync: AT+CNTP URC was never awaited)
  *   AT+CNTP="server",tz   only configures the NTP parameters.
  *   AT+CNTP (no args)     triggers the actual NTP synchronisation.
- *   The original code issued both but with only 1 000 ms timeout for the
- *   execute step.  The modem manual states the NTP response URC can take up
- *   to 10 000 ms.  The timeout was already 10 000 ms, which is correct — but
- *   verified here for clarity.
+ *   The modem replies OK immediately; the "+CNTP: <err>" URC arrives up to
+ *   10 s later when the server exchange completes.  The previous code used
+ *   at_channel_send_cmd() which returned on OK, so the URC was never
+ *   checked — the clock may still have been at epoch 0 when TLS opened.
+ *   Fixed: at_channel_send_cntp() suppresses the OK and signals completion
+ *   only when "+CNTP: 0" is received.  Timeout 12 000 ms covers the 10 s
+ *   maximum with 2 s margin.
  *
  * BUG-A7670-2  (time sync: AT+CTZU=1 enables automatic time-zone update from
  *   the network, but does NOT by itself set the clock.  On networks that do not
@@ -96,12 +99,11 @@ static bool Modem_Module_Init(void)
     if (at_channel_send_cmd(cmd_buf, 1000u) != AT_OK)
         return false;
 
-    /* Step C: Execute NTP synchronisation.
-     *         The modem queries the NTP server and updates the RTC.
-     *         Timeout 10 000 ms — modem manual specifies up to 10 s.
-     *         Without a valid RTC, TLS certificate validation will reject
-     *         any certificate whose validity window doesn't include epoch 0. */
-    if (at_channel_send_cmd("AT+CNTP", 10000u) != AT_OK)
+    /* Step C: Execute NTP synchronisation and await "+CNTP: 0" URC.
+     *         at_channel_send_cntp() suppresses the immediate OK and returns
+     *         only when the URC confirms the clock is set (err == 0).
+     *         Timeout 12 000 ms: modem manual specifies up to 10 s. */
+    if (at_channel_send_cntp(12000u) != AT_OK)
         return false;
 
     /* 3. Upload certificates

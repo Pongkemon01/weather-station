@@ -127,6 +127,15 @@ static struct {
     volatile bool     binary_recv_active;  /* true = feed bytes to binary_recv_buf */
     volatile bool     http_read_active;    /* true = waiting for +HTTPREAD: 0      */
 
+    /*
+     * NTP execute state for AT+CNTP (no-args execute form).
+     * The modem responds OK immediately (clock not yet set), then emits
+     * "+CNTP: <err>" URC when the sync completes.  cntp_active suppresses
+     * the immediate OK; the real AT_OK / AT_ERROR is signalled on the URC.
+     * Set by at_channel_send_cntp() while cmd_mutex is held.
+     */
+    volatile bool     cntp_active;         /* true = waiting for +CNTP: URC        */
+
     bool initialized;
 } s_ch;
 
@@ -391,6 +400,51 @@ AtResult_t at_channel_send_cmd(const char *cmd, uint32_t timeout_ms)
 /* -------------------------------------------------------------------------- */
 
 /**
+ * at_channel_send_cntp — execute AT+CNTP and await the "+CNTP: <err>" URC.
+ *
+ * The modem returns OK immediately, then emits the URC when the NTP server
+ * replies (up to ~10 s).  This function suppresses the OK and signals
+ * AT_OK only when "+CNTP: 0" arrives, or AT_ERROR for any non-zero err code.
+ * timeout_ms should be > 10 000 ms to allow the full NTP exchange.
+ */
+AtResult_t at_channel_send_cntp(uint32_t timeout_ms)
+{
+    if (!s_ch.initialized)
+        return AT_ERROR;
+
+    xSemaphoreTake(s_ch.cmd_mutex, portMAX_DELAY);
+
+    s_ch.cntp_active        = true;
+    s_ch.pending_result     = AT_TIMEOUT;
+    s_ch.expecting_response = true;
+
+    bool tx_ok =
+        UART_Sys_Send(s_ch.uart_ctx, (const uint8_t *)"AT+CNTP", 7u, AT_COMM_TIMEOUT) &&
+        UART_Sys_Send(s_ch.uart_ctx, (const uint8_t *)"\r\n", 2u, AT_COMM_TIMEOUT);
+
+    AtResult_t result;
+    if (!tx_ok)
+    {
+        s_ch.expecting_response = false;
+        s_ch.cntp_active        = false;
+        result = AT_TIMEOUT;
+    }
+    else
+    {
+        bool got = (xSemaphoreTake(s_ch.resp_sem,
+                                   pdMS_TO_TICKS(timeout_ms)) == pdTRUE);
+        s_ch.expecting_response = false;
+        s_ch.cntp_active        = false;
+        result = got ? s_ch.pending_result : AT_TIMEOUT;
+    }
+
+    xSemaphoreGive(s_ch.cmd_mutex);
+    return result;
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
  * at_channel_send_binary — two-phase binary send.
  *
  * BUG-AT-1: TX failures are detected and returned immediately.
@@ -644,11 +698,11 @@ static void dispatch_line(const char *line, uint16_t len)
         return;
     }
 
-    /* OK — suppressed during AT+HTTPREAD sequence (http_read_active).
-     * The real completion signal arrives with "+HTTPREAD: 0". */
+    /* OK — suppressed during AT+HTTPREAD (http_read_active) and AT+CNTP
+     * (cntp_active) sequences.  The real completion signal arrives later. */
     if (len == 2u && line[0] == 'O' && line[1] == 'K')
     {
-        if (!s_ch.http_read_active)
+        if (!s_ch.http_read_active && !s_ch.cntp_active)
             signal_result(AT_OK);
         return;
     }
@@ -690,6 +744,16 @@ static void dispatch_line(const char *line, uint16_t len)
             signal_result(AT_OK);
         }
         return;  /* never captured */
+    }
+
+    /* +CNTP: <err> — NTP sync completion URC (arrives after OK from AT+CNTP). */
+    if (strncmp(line, "+CNTP:", 6) == 0 && s_ch.cntp_active)
+    {
+        int err = 0;
+        parse_int(line + 6, &err);
+        s_ch.cntp_active = false;
+        signal_result(err == 0 ? AT_OK : AT_ERROR);
+        return;
     }
 
     /* Informational text — append to capture buffer if active */

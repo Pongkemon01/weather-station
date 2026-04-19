@@ -2,7 +2,7 @@
 ## STM32L476RG + CY15B116QN FRAM + A7670E LTE Modem
 
 **Document Version:** 1.5  
-**Status:** Implementation In Progress — Phase 3 Pending  
+**Status:** Implementation In Progress — Phase 3 Code Complete; Phase 4 Pending  
 **Platform:** STM32L476RG / FreeRTOS / SIMCom A7670E / Cypress CY15B116QN  
 **Build Environment:** PlatformIO + STM32CubeMX  
 
@@ -778,7 +778,7 @@ AT+HTTPTERM
 
 1. AT alive ping
 2. `AT+CTZU=1` — enable NITZ automatic time-zone update
-3. `AT+CNTP="server",28` + `AT+CNTP` (execute) — NTP sync
+3. `AT+CNTP="server",28` — configure NTP server/timezone; `at_channel_send_cntp(12000)` — execute sync and await `+CNTP: 0` URC (modem init fails if err ≠ 0)
 4. `AT+CCERTDOWN` × 3 — upload CA cert, client cert, client private key (**must be PEM format with `-----BEGIN`/`-----END` headers**)
 5. `AT+CSSLCFG="sslversion",0,3` — TLS 1.2, SSL context 0
 6. `AT+CSSLCFG="authmode",0,2` — mutual TLS, SSL context 0
@@ -789,7 +789,6 @@ AT+HTTPTERM
 
 | Issue | Location | Risk | Fix |
 |-------|----------|------|-----|
-| NTP confirm not awaited | `a7670.c` | TLS cert validity-window failure on cold boot | Capture `+CNTP:` URC after `AT+CNTP` execute; fail init if URC param ≠ 0 |
 | Cert format ambiguity | cert array files | Silent cert corruption on modem FS | Verify `-----BEGIN` header in each cert array; rename `*_der.c` files to `*_pem.c` if confirmed PEM |
 
 ---
@@ -1034,18 +1033,19 @@ These tasks fix known stability issues that would cause silent OTA failures.
 | P2.1-11 | ⏳ | **Hardware test:** multi-batch upload loop → all batches confirmed; `DB_IncUploadTail` advances correctly |
 | P2.1-12 | ⏳ | **Hardware test:** upload session → OTA version-check GET in same modem power-on succeeds |
 
-### Phase 3 — OTA Manager Task (next)
+### Phase 3 — OTA Manager Task ✅ CODE COMPLETE (2026-04-19; hardware tests pending)
 
-| Task | Description |
-|------|-------------|
-| P3-1 | Implement `Src/ota_manager_task.c` full state machine (8 states) |
-| P3-2 | Implement `GET <UPDATE_PATH>/` plain-text response parser (`V.#####:L.$$$$$$$` format) |
-| P3-3 | Implement `server_version_is_newer()` comparison (`srv_version > FW_VERSION`) |
-| P3-4 | Integrate `OtaManagerTask` into `MX_FREERTOS_Init()` in `Src/freertos.c` |
-| P3-5 | Add `xTaskNotify` call in `ssluploadtask` to wake `OtaManagerTask` after upload |
-| P3-6 | Implement `ota_confirm_success()` called at application startup after stable boot |
-| P3-7 | Test: version check when server == device version → no download initiated |
-| P3-8 | Test: version check when server > device version → full OTA flow |
+| Task | Status | Description |
+|------|--------|-------------|
+| P3-1 | ✅ | Implement `Src/ota_manager_task.c` full state machine (8 states) |
+| P3-2 | ✅ | Implement version response parser: locate `V.\d+:L.\d+:H.[0-9a-f]{64}` in buffer; extract version, image_size, sha256 |
+| P3-3 | ✅ | Implement `server_version_is_newer()`: `srv_version > FW_VERSION` |
+| P3-4 | ✅ | Integrate `OtaManagerTask` into `MX_FREERTOS_Init()` in `Src/freertos.c` |
+| P3-5 | ✅ | Add `xTaskNotify` in `ssluploadtask` to wake `OtaManagerTask` after upload |
+| P3-6 | ✅ | Implement `ota_confirm_success()`; `build_src_filter = +<*> +<../shared/*>` added to app env — build ✓: app 22.7% RAM / 9.3% Flash |
+| P3-6.1 | ✅ | Fix R-11: `at_channel_send_cntp(12000u)` suppresses immediate OK, signals AT_OK only on `+CNTP: 0` URC; modem init fails fast on NTP error — build ✓ both envs |
+| P3-7 | ⏳ | **Hardware test:** server version == device version → no download initiated |
+| P3-8 | ⏳ | **Hardware test:** server version > device version → full OTA state machine completes |
 
 ### Phase 4 — Integration & Field Testing
 
@@ -1075,7 +1075,7 @@ These tasks fix known stability issues that would cause silent OTA failures.
 | R-8 | Server returns metadata CRC that does not match image | Low | Medium | Locally computed CRC cross-checked against both server values |
 | R-9 | OTA download time exceeds modem session timeout | Low | Medium | Resume bitmap allows re-connection and continuation |
 | R-10 | CubeMX regeneration overwrites hand-edited HAL files | Medium | Medium | All custom code in `src/`; CubeMX only writes to `CubeMX/Core/` |
-| R-11 | NTP sync not confirmed before TLS opens — clock at epoch 0 fails cert validity check | Medium | High | Await `+CNTP: 0` URC in `Modem_Module_Init()` before proceeding |
+| ~~R-11~~ | ~~NTP sync not confirmed before TLS opens — clock at epoch 0 fails cert validity check~~ | — | — | **RESOLVED:** `at_channel_send_cntp()` suppresses immediate OK; signals AT_OK only on `+CNTP: 0` URC (AT_ERROR on any non-zero err); 12 s timeout covers 10 s modem maximum |
 | R-12 | Cert arrays compiled as DER but `AT+CCERTDOWN` requires PEM — silent FS corruption | Medium | Critical | Verify `-----BEGIN` header in each cert array; rename `*_der.c` files to `*_pem.c` if confirmed PEM |
 | ~~R-13~~ | ~~CCH service still running when OTA downloader calls `AT+CHTTPSSTART`~~ | — | — | **RESOLVED (Phase 2.1):** CCH service eliminated entirely; both upload and download use `AT+HTTP*` |
 | ~~R-14~~ | ~~`AT+CCHRECV` 64-byte capture truncated~~ | — | — | **RESOLVED (Phase 2.1):** `a7670_ssl_uploader.c` deleted; CCH no longer used |
@@ -1122,4 +1122,4 @@ These tasks fix known stability issues that would cause silent OTA failures.
 
 *Document Version 1.5 — prepared for Claude Code consumption*  
 *Target audience: Firmware engineering team / Claude Code AI agent*  
-*Next review: After Phase 3 completion*
+*Next review: After Phase 3 hardware testing / Phase 4 start*

@@ -90,6 +90,7 @@ AtResult_t      at_channel_ping_modem(uint32_t total_timeout_ms, uint8_t at_aliv
 AtReadyResult_t at_channel_wait_ready(uint32_t total_timeout_ms, uint8_t at_alive_retries);
 void            at_channel_set_capture(char *buf, uint16_t size);
 AtResult_t      at_channel_send_cmd(const char *cmd, uint32_t timeout_ms);
+AtResult_t      at_channel_send_cntp(uint32_t timeout_ms);
 AtResult_t      at_channel_send_binary(const char *cmd, const uint8_t *data,
                                         size_t len, uint32_t timeout_ms);
 

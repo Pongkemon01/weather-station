@@ -121,7 +121,6 @@ CCH (`AT+CCH*`) is eliminated. Both upload and download use `AT+HTTP*`. Only one
 SSL context 0 configured once in `Modem_Module_Init()` via `AT+CSSLCFG`. POST prompt is `DOWNLOAD` (not `>`).
 
 **Known modem issues:**
-- `AT+CNTP` returns `OK` immediately; `+CNTP: 0` URC never awaited — TLS may fail before clock is set.
 - Cert data must be PEM with `-----BEGIN`/`-----END` headers; `*_der.c` filenames are misleading.
 
 ---
@@ -204,7 +203,8 @@ Bootloader uses `bootloader/CubeMX/Bootloader.ioc` with SPI1, IWDG, Flash HAL on
 | Before implementing… | Read these first |
 |----------------------|-----------------|
 | Any FRAM access | `shared/fram_addresses.h`, `lib/SPI_FRAM/nv_database.h` |
-| HTTPS upload/download | `https_manual.pdf` (Chapter 16 — AT+HTTP* methods) |
+| HTTPS upload/download | `https_manual.md` (Chapter 16 — AT+HTTP* methods) |
+| NTP sync | `ntp_manual.md` |
 | OTA state logic | `shared/ota_control_block.h`, `OTA_Firmware_Architecture.md §8` |
 | OTA download loop | `lib/A7670/a7670_ssl_downloader.h`, `OTA_Firmware_Architecture.md §10.3, §10.5` |
 | Bootloader Flash write | `OTA_Firmware_Architecture.md §9` (incl. §9.4 Cache Management) |
