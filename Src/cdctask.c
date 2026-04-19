@@ -5,6 +5,7 @@
 #include "weather_data.h"
 #include "datetime.h"
 #include "main.h"
+#include "watchdog_task.h"
 
 /*-------------------------------------------------------------------
  * USB Protocol:
@@ -158,14 +159,19 @@ void cdc_task(void *params)
     /* Safe: written once here, then only read by ISR callbacks. */
     cdc_task_handle = xTaskGetCurrentTaskHandle();
 
+    static int8_t wdt_id;
+    wdt_id = wdt_register("cdctask");
+
     uint8_t  current_cmd  = 0;
     uint16_t rx_idx       = 0;
     uint16_t expected_len = 0;
 
     while (1)
     {
-        /* Wait indefinitely for a notification from ISR callbacks. */
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        /* Wait for USB CDC notification; kick watchdog every 500 ms while idle. */
+        while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(WDT_PERIOD_MS)) == 0u)
+            wdt_kick(wdt_id);
+        wdt_kick(wdt_id);
 
         while (tud_cdc_available())
         {

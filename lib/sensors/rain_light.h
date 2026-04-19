@@ -12,8 +12,8 @@ extern "C"
 
     /* ─────────────────────────── Slave addresses ────────────────────────────── */
 
-#define ADDR_SEM228P 0x01u /**< Light sensor  */
-#define ADDR_R66S 0x02u    /**< Rain gauge    */
+#define ADDR_R66S 0x01u    /**< Rain gauge    */
+#define ADDR_SEM228P 0x02u /**< Light sensor  */
 
     /* ─────────────────────────── Public API ─────────────────────────────────── */
     bool get_light(uint16_t *umol);

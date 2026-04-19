@@ -39,6 +39,7 @@
 #include "rain_light.h"
 #include "weather_data.h"
 #include "fixedptc.h"
+#include "watchdog_task.h"
 
 #define SENSOR_ALPHA 0.5f
 #define SENSOR_BETA (1.0f - SENSOR_ALPHA)
@@ -231,7 +232,10 @@ static inline void SensorUpdate(void)
     sht45_humidity += db_meta_data.humidity_adj;
     bmp390_temperature += db_meta_data.temperature_adj;
     bmp390_pressure += db_meta_data.pressure_adj;
-    light_par += db_meta_data.light_adj;
+    {   /* saturating signed add for uint16_t + int16_t */
+        int32_t lp = (int32_t)light_par + (int32_t)db_meta_data.light_adj;
+        light_par = (lp < 0) ? 0u : (lp > 65535) ? 65535u : (uint16_t)lp;
+    }
 
     // EMA fusion
     weather_data.temperature = ema(weather_data.temperature, (sht45_temperature + bmp390_temperature) / 2.0f);
@@ -335,6 +339,8 @@ static inline bool BUSCalc(float *BUS)
         if (!(system_ready_status.fram_ready = DB_GetData(db_index, &db_data)))
             return false; // Failed to read database
 
+        db_index = (db_index + 1) & 0x7FFF; /* advance regardless — was bug: skipped records re-read same slot */
+
         if(db_data.time_stamp < start_epoch)
             continue; // Skip old data that is outside the 24-hour window
 
@@ -344,10 +350,13 @@ static inline bool BUSCalc(float *BUS)
             Rh++;
         if (db_data.dew_point < db_data.temperature)
             Lw++;
-        db_index = (db_index + 1) & 0x7FFF;
     }
+    if (total_valid_data == 0u)
+        return false; // No valid data — avoid divide-by-zero
     Tavg /= (float)total_valid_data;
     total_data_per_hr = total_valid_data / 24u; // Count in the unit of hour (not per sampling)
+    if (total_data_per_hr == 0u)
+        return false; // Too few records to form even 1 sample/hour — avoid divide-by-zero
     Rh /= total_data_per_hr; // Count in the unit of hour (not per sampling)
     Lw /= total_data_per_hr;
 
@@ -400,6 +409,9 @@ void maintask(void *params)
 {
     (void)params;
 
+    static int8_t wdt_id;
+    wdt_id = wdt_register("maintask");
+
     /* Second stage of initialization : After RTOS scheduler */
     /* Now, all ui calls must be done through ui_task */
 
@@ -447,8 +459,10 @@ void maintask(void *params)
     /* Infinite Loop */
     while (1)
     {
-        // Block until ISR sends notification — no CPU usage while waiting
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        /* Wait for RTC 1 Hz notification; kick watchdog every 500 ms while idle. */
+        while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(WDT_PERIOD_MS)) == 0u)
+            wdt_kick(wdt_id);
+        wdt_kick(wdt_id);
 
         /* Main operation for every 1 second */
         /* Update SD Card status */

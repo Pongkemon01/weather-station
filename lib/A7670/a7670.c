@@ -4,7 +4,7 @@
 #include <string.h>
 #include "a7670.h"
 #include "a7670_at_channel.h"
-#include "a7670_ssl_uploader.h"
+#include "a7670_https_uploader.h"
 #include "a7670_ssl_cert_manager.h"
 
 /* ─────────────────────────── Private constants ──────────────────────────── */
@@ -65,10 +65,6 @@ static QueueHandle_t urc_queue = NULL;
  *   AT+CCERTDOWN command inside ssl_cert_inject for large certificates.
  *   That is a concern in a7670_ssl_cert_manager.c, noted here for traceability.)
  *
- * BUG-A7670-4  (SSL config: AT+CCHSET=1 enables the CCH receive-data URC
- *   mode.  If this is not set, +CCHEVENT URCs are not generated and the
- *   uploader's ssl_stream_body peer-closed check never fires.  It was already
- *   present in the original; no change required.)
  * =============================================================================
  */
 static bool Modem_Module_Init(void)
@@ -122,12 +118,12 @@ static bool Modem_Module_Init(void)
     if (cert_status != CERT_OK && cert_status != CERT_ERR_EXISTS)
         return false;
 
-    /* 4. Volatile SSL hardening (reset on every power cycle)
+    /* 4. Volatile SSL hardening — SSL context 0, used by AT+HTTPPARA="SSLCFG",0.
+     *    Settings are lost on power cycle and must be re-applied every boot.
      *
      *    sslversion 3  = TLS 1.2 (minimum acceptable for mutual auth).
      *    authmode 2    = mutual authentication (client + server certificates).
-     *    sni 1         = send SNI extension; required for virtual hosting.
-     *    cchset 1      = enable CCH unsolicited receive-data notifications. */
+     *    sni 1         = send SNI extension; required for virtual hosting. */
     if (at_channel_send_cmd("AT+CSSLCFG=\"sslversion\",0,3", 500u) != AT_OK)
         return false;
     if (at_channel_send_cmd("AT+CSSLCFG=\"authmode\",0,2", 500u) != AT_OK)
@@ -139,8 +135,6 @@ static bool Modem_Module_Init(void)
     if (at_channel_send_cmd("AT+CSSLCFG=\"clientkey\",0,\"client_key.der\"", 500u) != AT_OK)
         return false;
     if (at_channel_send_cmd("AT+CSSLCFG=\"sni\",0,1", 500u) != AT_OK)
-        return false;
-    if (at_channel_send_cmd("AT+CCHSET=1", 500u) != AT_OK)
         return false;
 
     return true;

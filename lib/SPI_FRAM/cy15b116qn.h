@@ -26,6 +26,12 @@ extern "C" {
 #endif
 
 /* ---- Public API ----------------------------------------------- */
+/*
+ * CONCURRENCY: All functions below operate directly on the SPI1 bus.
+ * The caller MUST hold g_fram_spi_mutex (defined in main.h) before
+ * calling any function in this driver.  The driver itself does not
+ * acquire any mutex.
+ */
 
 bool     fram_init(SPI_HandleTypeDef *hframspi);
 

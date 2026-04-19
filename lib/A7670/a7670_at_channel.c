@@ -36,14 +36,6 @@
  *   arithmetic: `(TickType_t)(xTaskGetTickCount() - deadline) < 0x80000000`.
  *   Changed all deadline comparisons to the portable helper macro pattern.
  *
- * BUG-AT-5  (CCHSTART already-running not handled)
- *   If the modem is already running (e.g. warm restart without power cycle),
- *   AT+CCHSTART returns +CME ERROR: 3 ("operation not allowed") because the
- *   service is already active.  The original code returned
- *   AT_READY_CCHSTART_FAIL in that case, forcing a full modem reinit.
- *   Fix: treat AT_CME_ERROR from AT+CCHSTART as a success path — the service
- *   is already up, so skip the deferred URC wait and proceed.
- *
  * OPTIM-1  (sscanf removed from hot ISR path)
  *   parse_and_forward_urc() runs on every modem line from the rx_task.
  *   Replaced sscanf() with a lightweight manual integer parser (parse_int)
@@ -82,17 +74,10 @@
 #define AT_COMM_TIMEOUT            500u
 
 /**
- * TX chunk size for binary payload streaming (AT+CCHSEND / AT+CCERTDOWN).
+ * TX chunk size for binary payload streaming (AT+CCERTDOWN, AT+HTTPDATA).
  * Independent of UART_BLOCK_SIZE (receive-path constant).
- * A7670E accepts up to 2048 B per AT+CCHSEND; 512 B gives a comfortable margin.
  */
 #define AT_TX_CHUNK_SIZE           512u
-
-/**
- * Timeout for the deferred +CCHSTART URC after the immediate OK.
- * 30 s is a conservative bound; PDP activation typically completes in < 10 s.
- */
-#define AT_CCHSTART_URC_TIMEOUT_MS 30000u
 
 /* ─────────────────────────── Portable deadline helper ───────────────────── */
 /*
@@ -127,6 +112,21 @@ static struct {
     char     line_buf[AT_LINE_BUF_SIZE];
     uint16_t line_pos;
 
+    /*
+     * Binary receive state for AT+HTTPREAD — owned exclusively by rx_task
+     * once binary_recv_active is set.  binary_recv_buf is set by the calling
+     * task BEFORE the AT command is sent (while cmd_mutex is held), so there
+     * is no race with rx_task which can only see it after the command TX.
+     *
+     * http_read_active suppresses the immediate OK signal from AT+HTTPREAD;
+     * the real AT_OK is signalled only when the trailing "+HTTPREAD: 0" arrives.
+     */
+    uint8_t          *binary_recv_buf;     /* destination buffer (set by caller)   */
+    volatile uint16_t binary_recv_needed;  /* bytes still to collect               */
+    uint16_t          binary_recv_got;     /* bytes collected so far               */
+    volatile bool     binary_recv_active;  /* true = feed bytes to binary_recv_buf */
+    volatile bool     http_read_active;    /* true = waiting for +HTTPREAD: 0      */
+
     bool initialized;
 } s_ch;
 
@@ -137,7 +137,7 @@ static void     process_byte(uint8_t b);
 static void     dispatch_line(const char *line, uint16_t len);
 static void     signal_result(AtResult_t result);
 static void     capture_append(const char *line, uint16_t len);
-static bool     is_cch_urc(const char *line);
+static bool     is_http_urc(const char *line);
 static void     parse_and_forward_urc(const char *line);
 static bool     parse_stat(const char *response, int *stat_out);
 /* Lightweight integer parser replacing sscanf in the hot path (OPTIM-1). */
@@ -203,15 +203,13 @@ AtResult_t at_channel_ping_modem(uint32_t total_timeout_ms,
 
 /**
  * at_channel_wait_ready — block until modem alive, network registered,
- * and AT+CCHSTART completed successfully.
+ * and GPRS data service attached.
  *
  * Step 1  AT echo test
  * Step 2  Network registration (AT+CGREG? / AT+CEREG?)
  * Step 3  GPRS/packet domain attach (AT+CGATT?)
- * Step 4  Start SSL service (AT+CCHSTART) + wait for deferred +CCHSTART:0 URC
  *
  * BUG-AT-4: All deadline checks use DEADLINE_PASSED() (wrap-safe arithmetic).
- * BUG-AT-5: AT_CME_ERROR from AT+CCHSTART treated as service-already-running.
  */
 AtReadyResult_t at_channel_wait_ready(uint32_t total_timeout_ms,
                                        uint8_t  at_alive_retries)
@@ -322,58 +320,6 @@ AtReadyResult_t at_channel_wait_ready(uint32_t total_timeout_ms,
             if (!attached)
                 vTaskDelay(pdMS_TO_TICKS(AT_REG_POLL_MS));
         }
-    }
-
-    /* ── Step 4: Start SSL service ───────────────────────────────────── */
-    /*
-     * BUG-AT-5: On a warm restart the modem may already have the CCH service
-     * running, in which case AT+CCHSTART returns +CME ERROR: 3 ("operation
-     * not allowed").  Treat this as success — the service is already up —
-     * rather than failing with AT_READY_CCHSTART_FAIL.
-     */
-    {
-        if (DEADLINE_PASSED(start, total_ticks))
-            return AT_READY_TIMEOUT;
-
-        AtResult_t r = at_channel_send_cmd("AT+CCHSTART", 5000u);
-
-        /* Service already running — skip the deferred URC wait */
-        if (r == AT_CME_ERROR)
-            return AT_READY_OK;
-
-        if (r != AT_OK)
-            return AT_READY_CCHSTART_FAIL;
-
-        /* Wait for deferred +CCHSTART:<err> URC */
-        TickType_t urc_ticks = pdMS_TO_TICKS(AT_CCHSTART_URC_TIMEOUT_MS);
-        TickType_t urc_start = xTaskGetTickCount();
-        HttpUrcEvent_t ev;
-        bool got_result = false;
-
-        while (!DEADLINE_PASSED(urc_start, urc_ticks) &&
-               !DEADLINE_PASSED(start, total_ticks))
-        {
-            TickType_t rem_urc   = urc_ticks - TICKS_ELAPSED(urc_start);
-            TickType_t rem_total = total_ticks - TICKS_ELAPSED(start);
-            TickType_t wait = pdMS_TO_TICKS(200u);
-            if (wait > rem_urc)   wait = rem_urc;
-            if (wait > rem_total) wait = rem_total;
-
-            if (xQueueReceive(s_ch.urc_queue, &ev, wait) == pdPASS)
-            {
-                if (ev.type == HTTP_URC_CCHSTART)
-                {
-                    got_result = true;
-                    if (ev.param != 0)
-                        return AT_READY_CCHSTART_FAIL;
-                    break;
-                }
-                /* Discard unrelated startup URCs */
-            }
-        }
-
-        if (!got_result)
-            return AT_READY_CCHSTART_FAIL;
     }
 
     return AT_READY_OK;
@@ -526,6 +472,81 @@ done:
 
 /* -------------------------------------------------------------------------- */
 
+/* -------------------------------------------------------------------------- */
+
+/**
+ * at_channel_http_read — binary receive companion to AT+HTTPREAD.
+ *
+ * Sends "AT+HTTPREAD=<offset>,<size>", then handles the multi-part response:
+ *   1. The immediate "OK" is suppressed (http_read_active flag).
+ *   2. dispatch_line() intercepts "+HTTPREAD: <n>" and activates binary mode.
+ *   3. process_byte() routes the next <n> raw bytes into buf[] directly.
+ *   4. "+HTTPREAD: 0" signals completion (AT_OK via resp_sem).
+ *
+ * When n==0 in the first "+HTTPREAD:" the modem has no data; AT_OK is returned
+ * with *received == 0.
+ */
+AtResult_t at_channel_http_read(uint32_t  offset,
+                                 uint16_t  size,
+                                 uint8_t  *buf,
+                                 uint16_t  max_len,
+                                 uint16_t *received,
+                                 uint32_t  timeout_ms)
+{
+    if (!s_ch.initialized || !buf || !received || size == 0u || size > max_len)
+        return AT_ERROR;
+
+    char cmd[32];
+    int  n = snprintf(cmd, sizeof(cmd), "AT+HTTPREAD=%lu,%u",
+                      (unsigned long)offset, (unsigned)size);
+    if (n <= 0 || n >= (int)sizeof(cmd))
+        return AT_ERROR;
+
+    xSemaphoreTake(s_ch.cmd_mutex, portMAX_DELAY);
+
+    /* Arm binary receive state and http_read_active before sending the command. */
+    s_ch.binary_recv_buf    = buf;
+    s_ch.binary_recv_needed = 0u;
+    s_ch.binary_recv_got    = 0u;
+    s_ch.binary_recv_active = false;
+    s_ch.http_read_active   = true;
+    *received               = 0u;
+
+    s_ch.pending_result     = AT_TIMEOUT;
+    s_ch.expecting_response = true;
+
+    bool tx_ok =
+        UART_Sys_Send(s_ch.uart_ctx, (const uint8_t *)cmd,
+                      (uint16_t)(unsigned)n, AT_COMM_TIMEOUT) &&
+        UART_Sys_Send(s_ch.uart_ctx, (const uint8_t *)"\r\n", 2u, AT_COMM_TIMEOUT);
+
+    AtResult_t result;
+    if (!tx_ok)
+    {
+        s_ch.expecting_response = false;
+        s_ch.http_read_active   = false;
+        result = AT_TIMEOUT;
+    }
+    else
+    {
+        bool got = (xSemaphoreTake(s_ch.resp_sem,
+                                   pdMS_TO_TICKS(timeout_ms)) == pdTRUE);
+        s_ch.expecting_response = false;
+        result = got ? s_ch.pending_result : AT_TIMEOUT;
+    }
+
+    if (result == AT_OK)
+        *received = s_ch.binary_recv_got;
+
+    s_ch.http_read_active   = false;
+    s_ch.binary_recv_buf    = NULL;
+    s_ch.binary_recv_active = false;
+    xSemaphoreGive(s_ch.cmd_mutex);
+    return result;
+}
+
+/* -------------------------------------------------------------------------- */
+
 void at_channel_deinit(void)
 {
     if (!s_ch.initialized)
@@ -563,6 +584,17 @@ static void rx_task(void *arg)
 
 static void process_byte(uint8_t b)
 {
+    /* Binary receive mode: bypass line reassembler entirely.
+     * Feeds raw bytes (including null bytes and \r\n sequences) directly into
+     * the caller-supplied buffer until binary_recv_needed reaches zero. */
+    if (s_ch.binary_recv_active)
+    {
+        s_ch.binary_recv_buf[s_ch.binary_recv_got++] = b;
+        if (--s_ch.binary_recv_needed == 0u)
+            s_ch.binary_recv_active = false;
+        return;
+    }
+
     /* '>' on an otherwise empty line: immediate data-entry prompt */
     if (b == '>' && s_ch.line_pos == 0u)
     {
@@ -598,16 +630,29 @@ static void process_byte(uint8_t b)
 
 static void dispatch_line(const char *line, uint16_t len)
 {
+    /* '>' prompt (AT+CCERTDOWN) */
     if (len == 1u && line[0] == '>')
     {
         signal_result(AT_PROMPT);
         return;
     }
-    if (len == 2u && line[0] == 'O' && line[1] == 'K')
+
+    /* "DOWNLOAD" prompt (AT+HTTPDATA — reuses AT_PROMPT) */
+    if (len == 8u && memcmp(line, "DOWNLOAD", 8u) == 0)
     {
-        signal_result(AT_OK);
+        signal_result(AT_PROMPT);
         return;
     }
+
+    /* OK — suppressed during AT+HTTPREAD sequence (http_read_active).
+     * The real completion signal arrives with "+HTTPREAD: 0". */
+    if (len == 2u && line[0] == 'O' && line[1] == 'K')
+    {
+        if (!s_ch.http_read_active)
+            signal_result(AT_OK);
+        return;
+    }
+
     if (len == 5u && memcmp(line, "ERROR", 5u) == 0)
     {
         signal_result(AT_ERROR);
@@ -619,11 +664,32 @@ static void dispatch_line(const char *line, uint16_t len)
         return;
     }
 
-    /* CCH URCs and deferred command results — always forwarded */
-    if (is_cch_urc(line))
+    /* HTTP service URCs — forwarded to the URC queue */
+    if (is_http_urc(line))
     {
         parse_and_forward_urc(line);
         return;
+    }
+
+    /* AT+HTTPREAD response frames.
+     * "+HTTPREAD: <n>" (n>0) activates binary mode for the payload bytes.
+     * "+HTTPREAD: 0"  signals end-of-read and completes the pending command. */
+    if (strncmp(line, "+HTTPREAD:", 10) == 0)
+    {
+        int n = 0;
+        parse_int(line + 10, &n);
+        if (n > 0 && s_ch.binary_recv_buf != NULL)
+        {
+            s_ch.binary_recv_got    = 0u;
+            s_ch.binary_recv_needed = (uint16_t)n;
+            s_ch.binary_recv_active = true;  /* must be written last */
+        }
+        else if (n == 0 && s_ch.http_read_active)
+        {
+            s_ch.http_read_active = false;
+            signal_result(AT_OK);
+        }
+        return;  /* never captured */
     }
 
     /* Informational text — append to capture buffer if active */
@@ -668,17 +734,11 @@ static void capture_append(const char *line, uint16_t len)
 
 /* ─────────────────────────── URC Recognition ───────────────────────────── */
 
-static bool is_cch_urc(const char *line)
+static bool is_http_urc(const char *line)
 {
-    return strncmp(line, "+CCHSTART:",        10) == 0
-        || strncmp(line, "+CCHSTOP:",          9) == 0
-        || strncmp(line, "+CCHOPEN:",          9) == 0
-        || strncmp(line, "+CCHCLOSE:",        10) == 0
-        || strncmp(line, "+CCHEVENT:",        10) == 0
-        || strncmp(line, "+CCH_RECV_CLOSED:", 18) == 0
-        || strncmp(line, "+CCHSEND:",          9) == 0
-        || strncmp(line, "+CCH_PEER_CLOSED:", 17) == 0
-        || strncmp(line, "+CCH:",              5) == 0;
+    return strncmp(line, "+HTTPACTION:",     12) == 0
+        || strncmp(line, "+HTTP_PEER_CLOSED", 17) == 0
+        || strncmp(line, "+HTTP_NONET_EVENT", 17) == 0;
 }
 
 /* ─────────────────────────── Lightweight int parser (OPTIM-1) ───────────── */
@@ -708,75 +768,34 @@ static int parse_int(const char *s, int *out)
 
 static void parse_and_forward_urc(const char *line)
 {
-    HttpUrcEvent_t ev = { .client_idx = -1, .param = 0 };
-    int id  = -1;
-    int err =  0;
+    HttpUrcEvent_t ev = { 0 };
 
-    if (strncmp(line, "+CCHSTART:", 10) == 0)
+    if (strncmp(line, "+HTTPACTION:", 12) == 0)
     {
-        ev.type = HTTP_URC_CCHSTART;
-        parse_int(line + 10, &err);
-        ev.param = (int8_t)err;
+        /*
+         * +HTTPACTION: <method>,<statuscode>,<datalen>
+         * e.g.  "+HTTPACTION: 0,200,18"
+         */
+        ev.type = HTTP_URC_HTTPACTION;
+        int method = 0, status = 0, datalen = 0;
+        int n1 = parse_int(line + 12, &method);
+        if (n1 > 0 && line[12 + n1] == ',')
+        {
+            int n2 = parse_int(line + 12 + n1 + 1, &status);
+            if (n2 > 0 && line[12 + n1 + 1 + n2] == ',')
+                parse_int(line + 12 + n1 + 1 + n2 + 1, &datalen);
+        }
+        ev.method     = (uint8_t)method;
+        ev.statuscode = (uint16_t)status;
+        ev.datalen    = (uint32_t)datalen;
     }
-    else if (strncmp(line, "+CCHSTOP:", 9) == 0)
+    else if (strncmp(line, "+HTTP_PEER_CLOSED", 17) == 0)
     {
-        ev.type = HTTP_URC_CCHSTOP;
-        parse_int(line + 9, &err);
-        ev.param = (int8_t)err;
+        ev.type = HTTP_URC_PEER_CLOSED;
     }
-    else if (strncmp(line, "+CCHOPEN:", 9) == 0)
+    else if (strncmp(line, "+HTTP_NONET_EVENT", 17) == 0)
     {
-        ev.type = HTTP_URC_CCHOPEN;
-        int n = parse_int(line + 9, &id);
-        if (n > 0 && line[9 + n] == ',')
-            parse_int(line + 9 + n + 1, &err);
-        ev.client_idx = (int8_t)id;
-        ev.param      = (int8_t)err;
-    }
-    else if (strncmp(line, "+CCHCLOSE:", 10) == 0)
-    {
-        ev.type = HTTP_URC_CCHCLOSE;
-        int n = parse_int(line + 10, &id);
-        if (n > 0 && line[10 + n] == ',')
-            parse_int(line + 10 + n + 1, &err);
-        ev.client_idx = (int8_t)id;
-        ev.param      = (int8_t)err;
-    }
-    else if (strncmp(line, "+CCHEVENT:", 10) == 0)
-    {
-        ev.type = HTTP_URC_CCHEVENT;
-        parse_int(line + 10, &id);
-        ev.client_idx = (int8_t)id;
-        /* param = 0; second field "RECV EVENT" has no numeric value */
-    }
-    else if (strncmp(line, "+CCH_RECV_CLOSED:", 18) == 0)
-    {
-        ev.type = HTTP_URC_CCH_RECV_CLOSED;
-        int n = parse_int(line + 18, &id);
-        if (n > 0 && line[18 + n] == ',')
-            parse_int(line + 18 + n + 1, &err);
-        ev.client_idx = (int8_t)id;
-        ev.param      = (int8_t)err;
-    }
-    else if (strncmp(line, "+CCHSEND:", 9) == 0)
-    {
-        ev.type = HTTP_URC_CCHSEND_RESULT;
-        int n = parse_int(line + 9, &id);
-        if (n > 0 && line[9 + n] == ',')
-            parse_int(line + 9 + n + 1, &err);
-        ev.client_idx = (int8_t)id;
-        ev.param      = (int8_t)err;
-    }
-    else if (strncmp(line, "+CCH_PEER_CLOSED:", 17) == 0)
-    {
-        ev.type = HTTP_URC_CCH_PEER_CLOSED;
-        parse_int(line + 17, &id);
-        ev.client_idx = (int8_t)id;
-    }
-    else if (strncmp(line, "+CCH:", 5) == 0)
-    {
-        ev.type = HTTP_URC_CCH_STOP;
-        /* client_idx = -1, param = 0 */
+        ev.type = HTTP_URC_NONET;
     }
     else
     {

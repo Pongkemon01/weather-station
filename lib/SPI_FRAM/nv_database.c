@@ -43,6 +43,8 @@
 
 #include <string.h>
 #include "nv_database.h"
+#include "fram_addresses.h"  /* FRAM_DB_END — single source of truth for DB region */
+#include "main.h"            /* g_fram_spi_mutex */
 
 /* FreeRTOS */
 #include "FreeRTOS.h"
@@ -75,14 +77,6 @@ static const Meta_Data_t initial_meta = {
 static Operation_Data_t oper;
 static Meta_Data_t meta;
 
-/*
- * Static mutex — zero heap cost.
- * The mutex is created in DB_Init() before the scheduler starts, so
- * xSemaphoreCreateMutexStatic() is safe and cannot return NULL.
- */
-static StaticSemaphore_t db_mutex_buf;
-static SemaphoreHandle_t db_mutex = NULL;
-
 /* ---- Private helpers ------------------------------------------ */
 
 /** Persist the operation struct to the Special Sector. */
@@ -93,16 +87,20 @@ static bool save_oper(void)
                                       sizeof(oper)) == sizeof(oper));
 }
 
-/** Acquire mutex (portMAX_DELAY — must never be called from an ISR). */
+/**
+ * Acquire the global FRAM SPI bus mutex.
+ * g_fram_spi_mutex is created in MX_FREERTOS_Init() before the scheduler
+ * starts.  Must never be called from an ISR.
+ */
 static inline void lock(void)
 {
-    xSemaphoreTake(db_mutex, portMAX_DELAY);
+    xSemaphoreTake(g_fram_spi_mutex, portMAX_DELAY);
 }
 
-/** Release mutex. */
+/** Release the global FRAM SPI bus mutex. */
 static inline void unlock(void)
 {
-    xSemaphoreGive(db_mutex);
+    xSemaphoreGive(g_fram_spi_mutex);
 }
 
 /* ================================================================ */
@@ -117,9 +115,9 @@ static inline void unlock(void)
  */
 bool DB_Init(SPI_HandleTypeDef *hframspi)
 {
-    /* Create the mutex exactly once. */
-    if (db_mutex == NULL)
-        db_mutex = xSemaphoreCreateMutexStatic(&db_mutex_buf);
+    /* g_fram_spi_mutex is created in MX_FREERTOS_Init() before the
+     * scheduler starts — assert it is valid before first use. */
+    configASSERT(g_fram_spi_mutex != NULL);
 
     /* ---- FRAM driver init ---- */
     if (!fram_init(hframspi)) /* fram_init issues WREN internally */
@@ -163,9 +161,9 @@ bool DB_AddData(const Weather_Data_Packed_t *data)
     if (data == NULL)
         return false;
 
-    /* Validate that the target address fits in physical FRAM. */
+    /* Validate that the target address fits within the DB region. */
     addr = (uint32_t)oper.db_head * sizeof(Weather_Data_Packed_t);
-    if (addr > FRAM_MAX_ADDR)
+    if (addr > FRAM_DB_END)
         return false;
 
     lock();

@@ -33,50 +33,50 @@ typedef enum {
     AT_ERROR     = 1,
     AT_CME_ERROR = 2,
     AT_TIMEOUT   = 3,
-    AT_PROMPT    = 4,   /* '>' received — binary payload may now be sent */
+    AT_PROMPT    = 4,   /* '>' or "DOWNLOAD" received — payload may now be sent */
 } AtResult_t;
 
 /* ─────────────────────────── URC event types ────────────────────────────── */
 
 /**
- * Every URC the modem can emit on the SSL/CCH channel.
- * Source: A76XX AT Command Manual V1.09, Section 19.4.
+ * URC types emitted by the A7670E HTTP(S) service.
+ * Source: A76XX AT Command Manual V1.09, Chapter 16.
  */
 typedef enum {
-    /* ── Deferred command results (arrive after the immediate OK) ─────── */
-    HTTP_URC_CCHSTART         = 0,  /* +CCHSTART:<err>             */
-    HTTP_URC_CCHSTOP          = 1,  /* +CCHSTOP:<err>              */
-    HTTP_URC_CCHOPEN          = 2,  /* +CCHOPEN:<id>,<err>         */
-    HTTP_URC_CCHCLOSE         = 3,  /* +CCHCLOSE:<id>,<err>        */
-
-    /* ── True spontaneous URCs (section 19.4) ─────────────────────────── */
-    HTTP_URC_CCHEVENT         = 4,  /* +CCHEVENT:<id>,RECV EVENT   */
-    HTTP_URC_CCH_RECV_CLOSED  = 5,  /* +CCH_RECV_CLOSED:<id>,<err> */
-    HTTP_URC_CCHSEND_RESULT   = 6,  /* +CCHSEND:<id>,<err>         */
-    HTTP_URC_CCH_PEER_CLOSED  = 7,  /* +CCH_PEER_CLOSED:<id>       */
-    HTTP_URC_CCH_STOP         = 8,  /* +CCH: CCH STOP              */
+    /* +HTTPACTION: <method>,<statuscode>,<datalen> — result of GET or POST */
+    HTTP_URC_HTTPACTION    = 0,
+    /* +HTTP_PEER_CLOSED — server closed the connection                     */
+    HTTP_URC_PEER_CLOSED   = 1,
+    /* +HTTP_NONET_EVENT — network became unavailable                       */
+    HTTP_URC_NONET         = 2,
 } HttpUrcType_t;
 
 /**
  * URC event delivered via the queue.
- * client_idx: session_id (0 or 1), or -1 when not applicable.
- * param:      error code for result URCs; 0 for CCHEVENT/PEER_CLOSED/CCH_STOP.
+ *
+ * For HTTP_URC_HTTPACTION:
+ *   method     — 0=GET, 1=POST, 2=HEAD, 3=DELETE, 4=PUT
+ *   statuscode — HTTP status (200, 206, 404, …) or modem errcode (700–719)
+ *   datalen    — response body length in bytes
+ *
+ * For HTTP_URC_PEER_CLOSED / HTTP_URC_NONET:
+ *   method, statuscode, datalen are zero.
  */
 typedef struct {
     HttpUrcType_t type;
-    int8_t        client_idx;
-    int8_t        param;
-} HttpUrcEvent_t;   /* 3 bytes — fits in one queue slot */
+    uint8_t       method;      /* GET=0, POST=1 (HTTPACTION only) */
+    uint16_t      statuscode;  /* HTTP status or modem errcode    */
+    uint32_t      datalen;     /* response body length            */
+} HttpUrcEvent_t;
 
 /* ─────────────────────────── Readiness result ───────────────────────────── */
 
 typedef enum {
-    AT_READY_OK              = 0,  /* modem alive, network registered, CCH started */
-    AT_READY_NO_MODEM        = 1,  /* AT echo test timed out                       */
-    AT_READY_NO_NETWORK      = 2,  /* registration poll timed out                  */
-    AT_READY_NO_ATTACH       = 3,  /* GPRS attach poll timed out                   */
-    AT_READY_CCHSTART_FAIL   = 4,  /* +CCHSTART returned non-zero error            */
-    AT_READY_TIMEOUT         = 5,  /* overall deadline exceeded                    */
+    AT_READY_OK          = 0,  /* modem alive, network registered, data attached */
+    AT_READY_NO_MODEM    = 1,  /* AT echo test timed out                         */
+    AT_READY_NO_NETWORK  = 2,  /* registration poll timed out                    */
+    AT_READY_NO_ATTACH   = 3,  /* GPRS attach poll timed out                     */
+    AT_READY_TIMEOUT     = 4,  /* overall deadline exceeded                      */
 } AtReadyResult_t;
 
 /* ─────────────────────────── Public API ─────────────────────────────────── */
@@ -92,6 +92,37 @@ void            at_channel_set_capture(char *buf, uint16_t size);
 AtResult_t      at_channel_send_cmd(const char *cmd, uint32_t timeout_ms);
 AtResult_t      at_channel_send_binary(const char *cmd, const uint8_t *data,
                                         size_t len, uint32_t timeout_ms);
+
+/**
+ * @brief  Issue AT+HTTPREAD=<offset>,<size> and receive the response body.
+ *
+ * Must be called after a successful +HTTPACTION URC to drain the modem's
+ * receive buffer.  The modem response sequence is:
+ *
+ *   OK\r\n                     (immediate — suppressed internally)
+ *   +HTTPREAD: <actual_len>\r\n
+ *   <actual_len bytes of data>
+ *   \r\n
+ *   +HTTPREAD: 0\r\n           (end marker — triggers AT_OK signal)
+ *
+ * Binary data bypasses line reassembly so firmware images with null bytes
+ * and embedded \r\n sequences are handled correctly.
+ *
+ * @param[in]  offset      Byte offset into the response body (usually 0).
+ * @param[in]  size        Number of bytes to request.
+ * @param[out] buf         Output buffer; must be at least @p max_len bytes.
+ * @param[in]  max_len     Buffer capacity (must be >= @p size).
+ * @param[out] received    Actual bytes written to @p buf.
+ * @param[in]  timeout_ms  Total operation timeout.
+ * @return AT_OK on success, AT_ERROR or AT_TIMEOUT on failure.
+ */
+AtResult_t      at_channel_http_read(uint32_t  offset,
+                                      uint16_t  size,
+                                      uint8_t  *buf,
+                                      uint16_t  max_len,
+                                      uint16_t *received,
+                                      uint32_t  timeout_ms);
+
 void            at_channel_deinit(void);
 
 #ifdef __cplusplus

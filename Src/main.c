@@ -96,7 +96,7 @@ int main(void)
   PeriphCommonClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */

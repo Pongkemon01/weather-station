@@ -34,6 +34,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "ota_manager_task.h"
 #include "crc.h"
 #include "dma.h"
 #include "fatfs.h"
@@ -55,6 +56,7 @@
 #include "nv_database.h"
 #include "weather_data.h"
 #include "datetime.h"
+#include "watchdog_task.h"
 
 /* USER CODE END Includes */
 
@@ -78,6 +80,14 @@
 /* USER CODE BEGIN Variables */
 
 System_Ready_Status_t system_ready_status;
+
+/*
+ * Global FRAM / SPI1 bus mutex.
+ * Protects all cy15b116qn driver calls across every task (DB, OTA, etc.).
+ * Must always be acquired BEFORE g_ota_state_mutex to avoid deadlock.
+ */
+static StaticSemaphore_t g_fram_spi_mutex_buf;
+SemaphoreHandle_t g_fram_spi_mutex = NULL;
 
 /* Definitions for maintask */
 osThreadId_t MainTaskHandle;
@@ -119,6 +129,25 @@ const osThreadAttr_t UsbCDC_attributes = {
     .priority = (osPriority_t)osPriorityHigh1,
 };
 
+/* Definitions for WatchdogTask */
+osThreadId_t WatchdogTaskHandle;
+const osThreadAttr_t WatchdogTask_attributes = {
+    .name = "watchdog",
+    .stack_size = 256,
+    .priority = (osPriority_t)osPriorityHigh,
+};
+
+/* Definitions for OtaManagerTask */
+const osThreadAttr_t OtaManagerTask_attributes = {
+    .name = "ota_mgr",
+    .stack_size = 512 * 4,
+    .priority = (osPriority_t)osPriorityNormal,
+};
+
+/* Watchdog slot IDs for tasks defined in this file */
+static int8_t g_wdt_id_usb_loop;
+static int8_t g_wdt_id_default;
+
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -143,6 +172,7 @@ extern void maintask(void *params);
 extern void uitask(void *params);
 extern void ucctask(void *params);
 extern void ssluploadtask(void *params);
+extern void watchdog_task(void *params);
 
 int __io_putchar(int ch)
 {
@@ -203,7 +233,12 @@ void MX_FREERTOS_Init(void)
     /* USER CODE END Init */
 
     /* USER CODE BEGIN RTOS_MUTEX */
-    /* add mutexes, ... */
+    g_fram_spi_mutex = xSemaphoreCreateMutexStatic(&g_fram_spi_mutex_buf);
+    configASSERT(g_fram_spi_mutex != NULL);
+
+    /* Register tasks that are defined in this file (single-threaded context). */
+    g_wdt_id_usb_loop = wdt_register("usb_loop");
+    g_wdt_id_default  = wdt_register("default");
     /* USER CODE END RTOS_MUTEX */
 
     /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -227,11 +262,13 @@ void MX_FREERTOS_Init(void)
 
     /* USER CODE BEGIN RTOS_THREADS */
     /* add threads, ... */
+    WatchdogTaskHandle = osThreadNew(watchdog_task, NULL, &WatchdogTask_attributes);
     UsbCDCHandle = osThreadNew(cdc_task, NULL, &UsbCDC_attributes);
     MainTaskHandle = osThreadNew(maintask, NULL, &MainTask_attributes);
     UITaskHandle = osThreadNew(uitask, NULL, &UITask_attributes);
     UserControlTaskHandle = osThreadNew(ucctask, NULL, &UserControlTask_attributes);
     SslUploadTaskHandle = osThreadNew(ssluploadtask, NULL, &SslUploadTask_attributes);
+    OtaManagerTaskHandle = osThreadNew(ota_manager_task, NULL, &OtaManagerTask_attributes);
 
     /* USER CODE END RTOS_THREADS */
 
@@ -250,10 +287,11 @@ void MX_FREERTOS_Init(void)
 void StartDefaultTask(void *argument)
 {
     /* USER CODE BEGIN StartDefaultTask */
-    /* Infinite loop */
+    /* Infinite loop — kick every 400 ms (well within the 500 ms WDT window) */
     for (;;)
     {
-        osDelay(1);
+        wdt_kick(g_wdt_id_default);
+        osDelay(400);
     }
     /* USER CODE END StartDefaultTask */
 }
@@ -282,6 +320,7 @@ void UsbLoopTask(void *argument)
     /* Infinite loop */
     for (;;)
     {
+        wdt_kick(g_wdt_id_usb_loop);
         // put this thread to waiting state until there is new events
         tud_task();
 

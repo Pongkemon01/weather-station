@@ -61,8 +61,9 @@ typedef struct __attribute__((packed))
     int16_t light_adj;         /**< Light adjustment factor (-9999 - 9999)   */
     float rainfall_adj;        /**< Rainfall adjustment factor (-999.99 - 999.99) */
     char server_name[64];      /**< Null-terminated, 63 chars max             */
-    char server_path[128];     /**< Null-terminated, 127 chars max            */
-} Meta_Data_t;                 /* 220 bytes */
+    char server_path[64];      /**< Data upload path, null-terminated, 63 chars max  */
+    char update_path[64];      /**< OTA base URL (UPDATE_PATH), null-terminated, 63 chars max */
+} Meta_Data_t;
 
 /* Compile-time guard: both structs must fit in the 256-byte special sector */
 _Static_assert(sizeof(Operation_Data_t) + sizeof(Meta_Data_t) <= FRAM_SPECIAL_SECTOR_SIZE,

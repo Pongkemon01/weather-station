@@ -66,6 +66,7 @@
 #include "weather_data.h"
 #include "nv_database.h"
 #include "datetime.h"
+#include "watchdog_task.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -1012,11 +1013,15 @@ void ucctask(void *params)
 {
     (void)params;
 
+    static int8_t wdt_id;
+    wdt_id = wdt_register("ucctask");
+
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
     while (1)
     {
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(100));
+        wdt_kick(wdt_id);
 
         /* BUG-6: atomic read — weather_data written by a separate sensor task */
         uint8_t current_seconds;

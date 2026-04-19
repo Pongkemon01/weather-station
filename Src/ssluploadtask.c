@@ -9,130 +9,145 @@
 #include "uart_subsystem.h"
 #include "a7670.h"
 #include "a7670_at_channel.h"
-#include "a7670_ssl_uploader.h"
+#include "a7670_https_uploader.h"
+#include "ota_manager_task.h"
+#include "watchdog_task.h"
 
+#include <stdio.h>
 #include <string.h>
 
-#define MAX_RECORDS_PER_UPLOAD 12u // Limit the number of records to upload in one batch to avoid long blocking time
+/* Maximum records packed into one 512-byte POST blob.
+ * Blob layout: header(5B) + N × sizeof(Weather_Data_Packed_t)(18B).
+ * (512 - 5) / 18 = 28 records exactly → 28×18+5 = 509 B ≤ 512 B. */
+#define MAX_RECORDS_PER_UPLOAD  28u
+#define UPLOAD_HEADER_SIZE      (2u * sizeof(uint16_t) + sizeof(uint8_t))  /* 5 B */
+#define UPLOAD_BLOB_SIZE(n)     ((uint16_t)(UPLOAD_HEADER_SIZE + (n) * sizeof(Weather_Data_Packed_t)))
 
-static Meta_Data_t meta_data;
+static Meta_Data_t  meta_data;
+static char         s_url_buf[128];
 
 /*---------------------------------------------------------------------------------------------*/
 
-/*---------------------------------------------------------------------------------------------*/
 /*
- * Database read — called by ssl_uploader once per SSL_FETCH_WINDOW slice.
- *
- * @param ctx     Opaque pointer; cast to whatever your SPI driver expects.
- * @param offset  Absolute byte offset within the file stored in flash.
- * @param buf     Destination buffer (SSL_FETCH_WINDOW bytes available).
- * @param len     Exact number of bytes to read (≤ SSL_FETCH_WINDOW).
- * @return true on success; false on SPI error or out-of-range offset.
+ * Context passed to chunk_fill().
+ * records_to_fetch:  set by the upload loop before each call.
+ * records_fetched:   filled in by chunk_fill(); read back after the POST.
  */
-static uint16_t chunk_read(void *ctx, uint32_t offset,
-                           uint8_t *buf, uint16_t len)
+typedef struct {
+    uint8_t records_to_fetch;
+    uint8_t records_fetched;
+} FetchCtx_t;
+
+/*
+ * chunk_fill — HttpsUlFetchCb_t implementation.
+ *
+ * Assembles one upload blob into buf[]:
+ *   [region_id 2B][station_id 2B][count 1B][record 0..18B]...[record N-1..18B]
+ *
+ * Reads exactly fc->records_to_fetch records starting at upload_tail+0.
+ * DB_ToUploadwithOffset(n, ...) returns the record n steps ahead of
+ * upload_tail; advance happens only after a successful POST via DB_IncUploadTail().
+ */
+static uint16_t chunk_fill(void *ctx, uint8_t *buf, uint16_t max_len)
 {
-    uint16_t max_bytes_to_read = len - (2 * sizeof(uint16_t)) - sizeof(uint8_t); /* Reserve space for region_id and station_id at the beginning of the buffer */
-    uint8_t *pos;
-    uint16_t i;
-    uint8_t *count = (uint8_t *)ctx; /* Cast context to a pointer to uint8_t to store the count of records read */
+    FetchCtx_t *fc  = (FetchCtx_t *)ctx;
+    uint8_t    *pos = buf + UPLOAD_HEADER_SIZE;
+    uint8_t     n;
 
-    /* Build data field first */
-    pos = buf + (2 * sizeof(uint16_t)) + sizeof(uint8_t); /* Reserve space for region_id and station_id at the beginning of the buffer */
+    fc->records_fetched = 0u;
 
-    // Add records to upload batch
-    *count = 0; /* Initialize count of records read */
-    for (i = 0; i < max_bytes_to_read; i += sizeof(Weather_Data_Packed_t))
+    for (n = 0u; n < fc->records_to_fetch; n++)
     {
-        if ((i + sizeof(Weather_Data_Packed_t)) > max_bytes_to_read)
-            break; /* Not enough space for another record, stop adding more records to this batch */
-        if (!DB_ToUploadwithOffset(i, (Weather_Data_Packed_t *)pos))
-            break; /* Failed to read data from FRAM, stop adding more records to this batch */
-
+        if ((uint16_t)(pos - buf) + (uint16_t)sizeof(Weather_Data_Packed_t) > max_len)
+            break;
+        if (!DB_ToUploadwithOffset((uint16_t)n, (Weather_Data_Packed_t *)pos))
+            break;
         pos += sizeof(Weather_Data_Packed_t);
-        (*count)++; /* Increment count of records read */
+        fc->records_fetched++;
     }
 
-    if (*count > 0)
-    {
-        /* Add header for upload batch at the beginning of the buffer */
-        pos = buf;
-        i += (2 * sizeof(uint16_t)); /* Add header size to the total bytes read */
+    if (fc->records_fetched == 0u)
+        return 0u;
 
-        // Create header for upload batch
-        memcpy(pos, &(meta_data.region_id), sizeof(uint16_t));
-        pos += sizeof(uint16_t);
-        memcpy(pos, &(meta_data.station_id), sizeof(uint16_t));
-        pos += sizeof(uint16_t);
-        *pos = *count; /* Store the count of records in the header */
-    }
+    /* Write 5-byte header */
+    memcpy(buf,                          &meta_data.region_id,  sizeof(uint16_t));
+    memcpy(buf + sizeof(uint16_t),       &meta_data.station_id, sizeof(uint16_t));
+    buf[2u * sizeof(uint16_t)] = fc->records_fetched;
 
-    return i;
+    return UPLOAD_BLOB_SIZE(fc->records_fetched);
 }
 
 /*---------------------------------------------------------------------------------------------*/
+
 void ssluploadtask(void *params)
 {
     (void)params;
-    static const uint32_t max_chunk_size = (sizeof(Weather_Data_Packed_t) * MAX_RECORDS_PER_UPLOAD) + (2 * sizeof(uint16_t)) + sizeof(uint8_t); /* Max chunk size based on the number of records and header size */
-    uint16_t total_to_upload;
-    uint8_t record_count;
 
-    SslUploadSession_t session; /* always start from the beginning */
-    SslUploadResult_t result;
+    static int8_t    wdt_id;
+    static FetchCtx_t fetch_ctx;
 
-    SslUploadParams_t ssl_params = {
-        .host = meta_data.server_name, /* Assuming server_name is null-terminated and fits within SSL_HOST_MAX_LEN */
-        .path = meta_data.server_path, /* Assuming server_path is null-terminated and fits within SSL_PATH_MAX_LEN */
-        .fetch_cb = chunk_read,
-        .fetch_ctx = (void *)&record_count, /* Pass record_count as context to the fetch callback if needed */
-        .urc_queue = NULL,                  /* This should be set to the actual URC queue used by the AT channel */
-        .file_size = max_chunk_size,        /* Chunk size */
-        .chunk_size = 0u,                   /* 0 → uses SSL_CHUNK_SIZE_DEFAULT (4096 B) but capped with file_size */
-        .port = 443u,
-        .max_retries = 0u, /* 0 → uses SSL_MAX_RETRIES default (3) */
-        .use_range_on_retry = false,
-    };
+    wdt_id = wdt_register("sslupload");
 
     while (1)
     {
-        /* Wait for notification from main task to perform upload */
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        /* Wait for upload notification; kick watchdog every 500 ms while idle. */
+        while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(WDT_PERIOD_MS)) == 0u)
+            wdt_kick(wdt_id);
+        wdt_kick(wdt_id);
 
-        /* Check if Modem is ready */
         if (!system_ready_status.a7670_ready)
-            continue; /* Modem is not ready, skip this iteration */
+            continue;
 
-        /* Perform SSL upload */
-        total_to_upload = DB_GetTotalToUpload();
+        uint16_t total_to_upload = DB_GetTotalToUpload();
+        if (total_to_upload == 0u)
+            continue;
+
         (void)DB_GetMeta(&meta_data);
-        ssl_params.urc_queue = modem_get_urc_queue(); /* Get the URC queue from the modem to pass to the upload parameters */
 
-        while (total_to_upload > 0)
+        /* Build upload URL: "https://<server_name><server_path>" */
+        int n = snprintf(s_url_buf, sizeof(s_url_buf),
+                         "https://%s%s",
+                         meta_data.server_name,
+                         meta_data.server_path);
+        if (n <= 0 || n >= (int)sizeof(s_url_buf))
+            continue;
+
+        /* Start one HTTPS session for all batches in this upload cycle. */
+        HttpsUlResult_t ul_result = https_uploader_start(modem_get_urc_queue());
+        if (ul_result != HTTPS_UL_OK)
+            continue;
+
+        while (total_to_upload > 0u)
         {
-            /* Update chunk size */
-            if (total_to_upload < MAX_RECORDS_PER_UPLOAD)
-                ssl_params.file_size = (total_to_upload * sizeof(Weather_Data_Packed_t)) + (2 * sizeof(uint16_t)) + sizeof(uint8_t);
-            else
-                ssl_params.file_size = max_chunk_size;
+            uint8_t records_this_batch =
+                (total_to_upload < MAX_RECORDS_PER_UPLOAD)
+                    ? (uint8_t)total_to_upload
+                    : (uint8_t)MAX_RECORDS_PER_UPLOAD;
 
-            /* Initialize variables */
-            record_count = 0;                     /* Reset record count before each upload attempt */
-            memset(&session, 0, sizeof(session)); /* Initialize session */
+            fetch_ctx.records_to_fetch = records_this_batch;
+            fetch_ctx.records_fetched  = 0u;
 
-            result = ssl_upload_chunked(&ssl_params, &session);
+            ul_result = https_uploader_post(s_url_buf,
+                                            chunk_fill,
+                                            &fetch_ctx,
+                                            UPLOAD_BLOB_SIZE(records_this_batch));
+            wdt_kick(wdt_id);
 
-            if (result == SSL_UPLOAD_OK)
+            if (ul_result == HTTPS_UL_OK && fetch_ctx.records_fetched > 0u)
             {
-                /* Update total_to_upload based on the number of records successfully uploaded */
-                total_to_upload -= (uint16_t)record_count;      /* Subtract the number of records uploaded in this chunk from the total */
-                (void)DB_IncUploadTail((uint16_t)record_count); /* Move the upload tail forward by the number of records uploaded */
+                (void)DB_IncUploadTail((uint16_t)fetch_ctx.records_fetched);
+                total_to_upload -= (uint16_t)fetch_ctx.records_fetched;
             }
             else
             {
-                /* Handle upload failure (e.g., log error, retry logic, etc.) */
-                break; /* Exit the loop on failure, or implement retry logic as needed */
+                break;
             }
         }
+
+        (void)https_uploader_stop();
+
+        /* Notify OtaManagerTask to perform OTA version check in this modem session. */
+        if (OtaManagerTaskHandle != NULL)
+            xTaskNotify(OtaManagerTaskHandle, 0u, eNoAction);
     }
 }

@@ -44,6 +44,7 @@
 
 #include "i2c.h"
 #include "ui.h"
+#include "watchdog_task.h"
 
 /* -------------------------------------------------------------------------- */
 /* Module-private state                                                         */
@@ -56,6 +57,9 @@ static uint8_t      previous_sw_status;
 void uitask(void *params)
 {
     (void)params;
+
+    static int8_t wdt_id;
+    wdt_id = wdt_register("uitask");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(20);   /* 20 ms period */
@@ -77,6 +81,7 @@ void uitask(void *params)
     while (1)
     {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        wdt_kick(wdt_id);
 
         if (!system_ready_status.ui_ready)
         {

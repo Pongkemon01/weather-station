@@ -58,6 +58,14 @@ extern "C" {
     } System_Ready_Status_t;
     extern System_Ready_Status_t system_ready_status;
 
+    /**
+     * Global FRAM / SPI1 bus mutex.
+     * Must be acquired before every cy15b116qn driver call.
+     * Acquisition order: g_fram_spi_mutex FIRST, g_ota_state_mutex SECOND.
+     * Created in MX_FREERTOS_Init() before the scheduler starts.
+     */
+    extern SemaphoreHandle_t g_fram_spi_mutex;
+
     /* UI interface data */
     typedef enum
     {
