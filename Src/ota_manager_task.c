@@ -70,14 +70,17 @@ static uint8_t hex_nibble(char c)
 }
 
 /**
- * @brief Scan buf[0..len-1] for the pattern V.<uint32>:L.<uint32>:H.<64hex>.
+ * @brief Scan buf[0..len-1] for `V.<uint32>:L.<uint32>:H.<64hex>[:W.<uint32>]`.
  *
- * Fills *version, *img_size, and sha256_out[32] on success.
+ * Fills *version, *img_size, sha256_out[32], and *wait_seconds on success.
+ * The `:W.<seconds>` suffix is optional — responses from pre-rollout servers
+ * omit it and the parser returns `wait_seconds = 0` (download permitted).
  * Returns true on the first valid match; false if no valid token is found.
  */
 static bool parse_version_response(const uint8_t *buf, uint16_t len,
                                    uint32_t *version, uint32_t *img_size,
-                                   uint8_t sha256_out[32])
+                                   uint8_t sha256_out[32],
+                                   uint32_t *wait_seconds)
 {
     const char *p   = (const char *)buf;
     const char *end = p + len;
@@ -106,8 +109,22 @@ static bool parse_version_response(const uint8_t *buf, uint16_t len,
         }
         if (!hex_ok) continue;
 
-        *version  = (uint32_t)v;
-        *img_size = (uint32_t)l;
+        /* Optional `:W.<seconds>` suffix. Missing or malformed → treat as W.0
+         * so pre-rollout servers remain compatible. */
+        unsigned long w = 0u;
+        const char *after_hash = h + 64;
+        if (after_hash + 3 <= end &&
+            after_hash[0] == ':' && after_hash[1] == 'W' && after_hash[2] == '.') {
+            char *wend;
+            unsigned long parsed = strtoul(after_hash + 3, &wend, 10);
+            if (wend != after_hash + 3) {
+                w = parsed;
+            }
+        }
+
+        *version      = (uint32_t)v;
+        *img_size     = (uint32_t)l;
+        *wait_seconds = (uint32_t)w;
         return true;
     }
     return false;
@@ -169,8 +186,17 @@ void ota_manager_task(void *params)
             }
             if (!meta_ok) { s_state = OTA_STATE_IDLE; break; }
 
-            int n = snprintf(s_url_buf, sizeof(s_url_buf), "https://%s%s/",
-                             s_meta.server_name, s_meta.update_path);
+            /* `region_id` and `station_id` are documented as 0–999 in
+             * nv_database.h, but a mis-provisioned station could exceed that
+             * range. Crop `% 1000` so the 6-char `?id=%03u%03u` identity
+             * always matches the server's `^\d{6}$` regex (Q-S7). */
+            unsigned region_mod  = (unsigned)(s_meta.region_id  % 1000u);
+            unsigned station_mod = (unsigned)(s_meta.station_id % 1000u);
+
+            int n = snprintf(s_url_buf, sizeof(s_url_buf),
+                             "https://%s%s/?id=%03u%03u",
+                             s_meta.server_name, s_meta.update_path,
+                             region_mod, station_mod);
             if (n <= 0 || n >= (int)sizeof(s_url_buf)) { s_state = OTA_STATE_IDLE; break; }
 
             wdt_kick(s_wdt_id);
@@ -188,14 +214,23 @@ void ota_manager_task(void *params)
 
             if (dl != SSL_DL_OK) { s_state = OTA_STATE_IDLE; break; }
 
-            uint32_t srv_version = 0u;
-            uint32_t img_size    = 0u;
+            uint32_t srv_version  = 0u;
+            uint32_t img_size     = 0u;
+            uint32_t wait_seconds = 0u;
             if (!parse_version_response(s_io_buf, received,
                                         &srv_version, &img_size,
-                                        s_ocb.image_sha256)   ||
-                srv_version <= (uint32_t)FW_VERSION            ||
-                img_size    == 0u                              ||
+                                        s_ocb.image_sha256,
+                                        &wait_seconds)      ||
+                srv_version <= (uint32_t)FW_VERSION          ||
+                img_size    == 0u                            ||
                 img_size    >  OIW_MAX_IMAGE_SIZE) {
+                s_state = OTA_STATE_IDLE;
+                break;
+            }
+
+            /* Rollout gate: server is telling us to wait our slot. Return to
+             * IDLE without downloading; retry on the next scheduled poll. */
+            if (wait_seconds > 0u) {
                 s_state = OTA_STATE_IDLE;
                 break;
             }
@@ -246,9 +281,11 @@ void ota_manager_task(void *params)
             while (oiw_resume_info(&next_chunk)) {
                 uint32_t offset = (uint32_t)next_chunk * (uint32_t)OIW_CHUNK_SIZE;
                 snprintf(s_url_buf, sizeof(s_url_buf),
-                         "https://%s%s/get_firmware.php?offset=%lu&length=%u",
+                         "https://%s%s/get_firmware?offset=%lu&length=%u&id=%03u%03u",
                          s_meta.server_name, s_meta.update_path,
-                         (unsigned long)offset, (unsigned)HTTPS_DL_CHUNK_SIZE);
+                         (unsigned long)offset, (unsigned)HTTPS_DL_CHUNK_SIZE,
+                         (unsigned)(s_meta.region_id  % 1000u),
+                         (unsigned)(s_meta.station_id % 1000u));
 
                 uint16_t   chunk_len = 0u;
                 SslDlResult_t res    = SSL_DL_ERR_READ;

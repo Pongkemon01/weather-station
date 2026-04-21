@@ -23,7 +23,7 @@
  *   buf[n] = '\0';   // null-terminate for string parsing
  *
  *   // Firmware chunk (repeat for each chunk)
- *   ssl_downloader_get("https://host/path/get_firmware.php?offset=0&length=512",
+ *   ssl_downloader_get("https://host/path/get_firmware?offset=0&length=512",
  *                       chunk_buf, HTTPS_DL_CHUNK_SIZE, &n);
  *
  *   ssl_downloader_stop();
@@ -59,7 +59,7 @@ extern "C" {
 /** Bytes of firmware data per chunk — must match the server chunk size. */
 #define HTTPS_DL_CHUNK_SIZE     512u
 
-/** Total bytes per get_firmware.php response = chunk data + 4-byte CRC trailer. */
+/** Total bytes per get_firmware response = chunk data + 4-byte CRC trailer. */
 #define HTTPS_DL_CHUNK_WITH_CRC_SIZE  (HTTPS_DL_CHUNK_SIZE + 4u)
 
 /** SSL context index configured by Modem_Module_Init() via AT+CSSLCFG. */
@@ -148,7 +148,7 @@ SslDlResult_t ssl_downloader_get(const char *full_url,
  * manager should retry the chunk URL.
  *
  * @param  full_url       Complete HTTPS URL for the chunk
- *                        ("https://host/path/get_firmware.php?offset=X&length=512").
+ *                        ("https://host/path/get_firmware?offset=X&length=512").
  *                        Must be ≤ HTTPS_DL_URL_MAX_LEN-1 characters.
  * @param  chunk_buf      Caller-supplied buffer for chunk data only (no CRC).
  *                        Must be at least HTTPS_DL_CHUNK_SIZE bytes.

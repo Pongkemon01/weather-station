@@ -4,6 +4,14 @@
 > Do not delete or rename this file.
 >
 > **Full OTA architecture:** `OTA_Firmware_Architecture.md` | **OTA phase status:** `IMPLEMENTATION_STATUS.md`
+>
+> **Server architecture:** `Server_Architecture.md` | **Server impl plan:** `Server_Implementation_Plan.md` | **Server test plan:** `Server_Test_Plan.md`
+
+---
+
+## Instructions
+
+When starting, always invoke the `karpathy-guidelines` skill.
 
 ---
 
@@ -44,6 +52,7 @@ Debug console: **USART2** — `__io_putchar` routes `printf` there.
 project_root/
 ├── Src/                    ← Application source
 │   ├── freertos.c          ← Task creation (MX_FREERTOS_Init), peripheral handles
+│   ├── freertos_lock.c     ← Newlib thread-safe locking shim (Strategy #4)
 │   ├── maintask.c          ← 1 s sensor read, pack, save to FRAM + SD
 │   ├── ssluploadtask.c     ← Noon/midnight HTTPS upload via A7670
 │   ├── uitask.c            ← LCD refresh, LEDs, button debounce (20 ms)
@@ -62,15 +71,21 @@ project_root/
 │   ├── user_interface/     ← mcp23017.c (I2C expander), ui.c (LCD + LED)
 │   ├── usart_subsystem/    ← uart_subsystem.c (shared interrupt-driven UART)
 │   ├── time/               ← datetime.c (RTC helpers), y2k_time.c (Y2K epoch)
+│   ├── tinyusb/            ← Vendored TinyUSB stack (USB CDC device)
 │   └── utils/              ← weather_data.h (packed/unpacked types), fixedptc.h
 ├── shared/                 ← Compiled into BOTH application and bootloader
 │   ├── fram_addresses.h    ← Single source of truth for ALL FRAM addresses
 │   ├── ota_control_block.h/.c  ← OtaControlBlock_t read/write/validate (dual-copy)
 │   ├── crc32.h/.c          ← Software CRC-32/MPEG-2
 │   └── sha256.h/.c         ← Standalone FIPS 180-4 SHA-256
-└── bootloader/             ← Separate PlatformIO environment (bare-metal, no FreeRTOS)
-    ├── ldscript_boot.ld    ← Origin 0x08000000, length 32 KB
-    └── src/                ← main.c, boot_flash.c/.h, boot_fram.c/.h
+├── bootloader/             ← Separate PlatformIO environment (bare-metal, no FreeRTOS)
+│   ├── ldscript_boot.ld    ← Origin 0x08000000, length 32 KB
+│   ├── Inc/                ← main.h, stm32l4xx_hal_conf.h (SPI1 + IWDG + Flash only)
+│   └── src/                ← main.c, boot_flash.c/.h, boot_fram.c/.h
+├── html/                   ← Server-side FastAPI code (deployed to Ubuntu via SSH;
+│                              see Server_Implementation_Plan.md for layout)
+└── server_test/            ← Python black-box verifiers for the deployed server
+                              (see Server_Test_Plan.md)
 ```
 
 ---
@@ -121,6 +136,7 @@ CCH (`AT+CCH*`) is eliminated. Both upload and download use `AT+HTTP*`. Only one
 SSL context 0 configured once in `Modem_Module_Init()` via `AT+CSSLCFG`. POST prompt is `DOWNLOAD` (not `>`).
 
 **Known modem issues:**
+
 - Cert data must be PEM with `-----BEGIN`/`-----END` headers; `*_der.c` filenames are misleading.
 
 ---
@@ -212,3 +228,5 @@ Bootloader uses `bootloader/CubeMX/Bootloader.ioc` with SPI1, IWDG, Flash HAL on
 | Modem AT commands | `lib/A7670/a7670_at_channel.h` |
 | Sensor data packing | `lib/utils/weather_data.h`, `lib/utils/fixedptc.h` |
 | USB CDC protocol | `Src/cdctask.c` header block |
+| Server-side code (in `html/`) | `Server_Architecture.md`, `Server_Implementation_Plan.md` |
+| Server verification tests (in `server_test/`) | `Server_Test_Plan.md`, `Server_Architecture.md §3` |

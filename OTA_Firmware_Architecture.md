@@ -1,10 +1,10 @@
 # OTA Firmware Update Architecture
 ## STM32L476RG + CY15B116QN FRAM + A7670E LTE Modem
 
-**Document Version:** 1.5  
-**Status:** Implementation In Progress — Phase 3 Code Complete; Phase 4 Pending  
-**Platform:** STM32L476RG / FreeRTOS / SIMCom A7670E / Cypress CY15B116QN  
-**Build Environment:** PlatformIO + STM32CubeMX  
+**Document Version:** 2.0
+**Status:** Implementation In Progress — Phase 3.1 Code Complete; Phase 3.2 Pending; Phase 4 Pending
+**Platform:** STM32L476RG / FreeRTOS / SIMCom A7670E / Cypress CY15B116QN
+**Build Environment:** PlatformIO + STM32CubeMX
 
 ---
 
@@ -14,10 +14,15 @@
 |---------|---------------|
 | 1.0 | Initial architecture draft |
 | 1.1 | Applied firmware size constraints (512 KB code / 96 KB data); adopted PlatformIO + CubeMX toolchain; changed OTA version check to device-initiated polling with separate URL paths; revised FRAM layout (DB at 0x000000, Config at 0x0FE000); formatted for Claude Code consumption |
-| 1.2 | Replaced three-endpoint JSON protocol with single UPDATE_PATH text protocol; version changed from major.minor pair to single uint32 FW_VERSION; fw_version_major/minor fields in OtaControlBlock_t merged into fw_version uint32_t; Meta_Data_t server_path reduced to 64 B and update_path[64] added; download now via GET to get_firmware.php with offset/length query params |
+| 1.2 | Replaced three-endpoint JSON protocol with single UPDATE_PATH text protocol; version changed from major.minor pair to single uint32 FW_VERSION; fw_version_major/minor fields in OtaControlBlock_t merged into fw_version uint32_t; Meta_Data_t server_path reduced to 64 B and update_path[64] added; download now via GET to get_firmware with offset/length query params |
 | 1.3 | Documented A7670E dual SSL service model (CCH vs HTTPS); clarified that data upload uses CCH service and OTA download must use HTTPS service; noted NTP async-confirm bug, PEM cert format requirement, CCH/HTTPS service-switch requirement for Phase 2; updated risks R-11–R-14; resolved Q-7 (mbedTLS not present) |
 | 1.4 | Added §9.4 Cache Management — STM32L476 I-cache and D-cache must be explicitly reset after Flash programming to prevent stale read-back verify and wrong instruction fetch; updated §9.2 pseudocode, Risk R-15 |
 | 1.5 | Phase 0–2.1 code-complete: CCH service eliminated entirely; both data upload and OTA download now use A7670E `AT+HTTP*` service (`AT+HTTPINIT/HTTPPARA/HTTPACTION/HTTPREAD/HTTPTERM`); §2.3, §10.3, §10.5 rewritten; §11.1 corrected (software CRC-32, HW CRC locked to Modbus CRC-16); Phase 2.1 added to §14; R-13/R-14 resolved; §7.1 repo layout corrected; P0–P2.1 tasks marked complete |
+| 1.6 | Risk register updated to current implementation state: R-1 through R-10 and R-15 marked RESOLVED following code verification; only R-12 (PEM cert format) remains open |
+| 1.7 | Folded `Server_Architecture.md` Q-S1/Q-S2/Q-S7 decisions into §1.5, §10.2, and §14: `UPDATE_PATH = /api/v1/weather` (Option B), `?id=<rrrsss>` on both OTA endpoints, `W.<seconds>` rollout-wait parsing, `region_id`/`station_id` cropped `% 1000` at URL-build time; Phase 3.1 added to the roadmap |
+| 1.8 | Status updated to Phase 3.1 Code Complete (P3.1-1..P3.1-7 verified 2026-04-21); Q-S5 resolved in `Server_Architecture.md` (status-change path for `success_rate`); no firmware-side changes required |
+| 1.9 | All design decisions resolved (Q-1..Q-8): copy-in-place, CRC-32+SHA-256, background download, 60 s confirm, CA validation, plain-text protocol, standalone sha256, twice-daily check; §16 renamed to Design Decisions; §1.4 and §3 updated to reflect code-complete state |
+| 2.0 | Phase 3.2 (Image Size Guard) added to §14 roadmap — device-side `FLASH_APP_SIZE_MAX` (480 KB) check in `POLLING_VERSION` state and bootloader pre-SHA-256 guard; P3.1-7 status corrected to ✅; document status updated; resolves cross-document open issue filed 2026-04-21 |
 
 ---
 
@@ -25,7 +30,7 @@
 
 1. [System Overview](#1-system-overview)
 2. [Hardware Constraints & Memory Map](#2-hardware-constraints--memory-map)
-3. [Current Firmware Limitations](#3-current-firmware-limitations)
+3. [Initial Firmware Gaps (All Addressed)](#3-initial-firmware-gaps-all-addressed)
 4. [OTA Architecture Design](#4-ota-architecture-design)
 5. [FRAM Layout](#5-fram-layout)
 6. [Internal Flash Layout](#6-internal-flash-layout)
@@ -38,7 +43,7 @@
 13. [PlatformIO + CubeMX Project Structure](#13-platformio--cubemx-project-structure)
 14. [Refactoring Plan & Phased Roadmap](#14-refactoring-plan--phased-roadmap)
 15. [Risk Register](#15-risk-register)
-16. [Open Questions & Decisions Required](#16-open-questions--decisions-required)
+16. [Design Decisions](#16-design-decisions)
 17. [References](#17-references)
 
 ---
@@ -74,12 +79,12 @@
 
 > SRAM2 (32 KB) is reserved for battery-backed OTA state flags and is **not** counted in the 96 KB data budget. The bootloader uses its own 32 KB Flash partition and a separate, minimal RAM footprint with no FreeRTOS overhead.
 
-### 1.4 System Behavior (Current)
+### 1.4 System Behavior
 
 - Firmware collects data continuously and stores it in the FRAM database (first 1 MB).
-- Twice daily, firmware establishes HTTPS connection via A7670E and uploads collected data.
-- No OTA capability exists. The server does not push version notifications.
-- **No OTA update capability exists today.**
+- Twice daily, firmware establishes HTTPS connection via A7670E, uploads collected data, then wakes `OtaManagerTask` via `xTaskNotify`.
+- `OtaManagerTask` polls the server for a newer firmware version; if available and slot-eligible, downloads and verifies the image over HTTPS.
+- Bootloader programs the staged FRAM image to internal Flash page-by-page, verifies integrity, then jumps to the new application at 0x08008000.
 
 ### 1.5 Desired End-State
 
@@ -87,12 +92,13 @@
 Scheduled OTA check (device-initiated)
         │
         ▼
-GET <UPDATE_PATH>/  →  plain text "V.#####:L.$$$$$$$"
+GET <UPDATE_PATH>/?id=<rrrsss>
+        →  plain text "V.#####:L.$$$$$$$:H.<sha256>:W.<seconds>"
         │
-        │  V > FW_VERSION?
+        │  V > FW_VERSION  AND  W == 0 ?
         │  YES
         ▼
-GET <UPDATE_PATH>/get_firmware.php?offset=<byte_offset>&length=<bytes>  (chunked)
+GET <UPDATE_PATH>/get_firmware?offset=<byte_offset>&length=<bytes>&id=<rrrsss>  (chunked)
         →  raw binary image written to FRAM staging
         │
         ▼
@@ -164,20 +170,20 @@ Reference: *SIMCom A7670 Series AT Command Manual*, V1.09, Chapter 16 (HTTP).
 
 ---
 
-## 3. Current Firmware Limitations
+## 3. Initial Firmware Gaps (All Addressed)
 
-| # | Gap | Impact |
-|---|-----|--------|
-| G-1 | No bootloader — reset vector goes directly to application | Cannot redirect execution to a new image |
-| G-2 | No firmware version query to server | No mechanism to detect available updates |
-| G-3 | No firmware image download logic | Cannot retrieve binary via HTTPS |
-| G-4 | Second 1 MB FRAM space unused and undefined | No staging area for incoming image |
-| G-5 | No image integrity check (CRC/hash) | Cannot validate image before Flash write |
-| G-6 | No OTA state persistence across resets | Power loss during OTA leaves system undefined |
-| G-7 | FRAM config sector does not include OTA control fields | No way to signal bootloader about pending update |
-| G-8 | No rollback mechanism | Bad update could permanently brick device |
-| G-9 | FRAM database module uses raw pointer returns | Race condition risk during concurrent OTA + DB access |
-| G-10 | No PlatformIO project structure | Build reproducibility not guaranteed |
+| # | Gap | Addressed in |
+|---|-----|--------------|
+| G-1 | No bootloader | Phase 1 — `bootloader/src/main.c`, `boot_flash.c` |
+| G-2 | No firmware version query to server | Phase 3/3.1 — `ota_manager_task.c` |
+| G-3 | No firmware image download logic | Phase 2 — `a7670_ssl_downloader.c` |
+| G-4 | Second 1 MB FRAM space unused (no staging area) | Phase 0 — `shared/fram_addresses.h` OTA staging region |
+| G-5 | No image integrity check (CRC/hash) | Phase 2 — `shared/crc32.c`, `shared/sha256.c` |
+| G-6 | No OTA state persistence across resets | Phase 1 — `shared/ota_control_block.h/.c` (dual-copy) |
+| G-7 | FRAM config sector has no OTA control fields | Phase 1 — `OtaControlBlock_t` at config sector offset +0x80 |
+| G-8 | No rollback mechanism | Phase 1 — bootloader `ota_tried` counter + IWDG |
+| G-9 | FRAM database module raw pointer returns | Phase 0 — snapshot-copy pattern + `g_fram_spi_mutex` |
+| G-10 | No PlatformIO project structure | Phase 0 — `platformio.ini` with app + bootloader envs |
 
 ---
 
@@ -236,13 +242,13 @@ Reference: *SIMCom A7670 Series AT Command Manual*, V1.09, Chapter 16 (HTTP).
 │  │  │ OTA Header  (256 B)      │    │                       │
 │  │  │ 0x100000                 │    │                       │
 │  │  ├──────────────────────────┤    │                       │
-│  │  │ Image Data (≤ 512 KB)    │    │                       │
+│  │  │ Image Data (≤ 480 KB)    │    │                       │
 │  │  │ 0x100100                 │    │                       │
 │  │  ├──────────────────────────┤    │                       │
 │  │  │ Download Bitmap (1 KB)   │    │                       │
 │  │  │ 0x17F000                 │    │                       │
 │  │  ├──────────────────────────┤    │                       │
-│  │  │ CRC-32 Footer (4 B)      │    │                       │
+│  │  │ (Reserved / unused 4 B)  │    │                       │
 │  │  │ 0x17F400                 │    │                       │
 │  │  └──────────────────────────┘    │                       │
 │  └──────────────────────────────────┘                       │
@@ -298,7 +304,7 @@ typedef struct __attribute__((packed)) {
 | Sub-region | Start Address | Size | Description |
 |-----------|--------------|------|-------------|
 | OTA Staging Header | 0x100000 | 256 B | Mirrors OtaControlBlock + in-progress download URL/size |
-| Image Data | 0x100100 | ≤ 512 KB | Raw `.bin` image (no ELF headers) |
+| Image Data | 0x100100 | ≤ 480 KB | Raw `.bin` image (no ELF headers). **Hard cap = app Flash partition size (480 KB)**; staging region physically allows more but the bootloader cannot program beyond page 255 in Bank 1. |
 | Download Bitmap | 0x17F000 | 1 KB | 1 bit per 512-byte chunk; set = received and written |
 | (Unused) | 0x17F400 | 4 B | Previously CRC-32 footer; whole-image CRC removed — SHA-256 in OCB |
 | Reserved | 0x17F404 | — | Remainder of staging region |
@@ -470,30 +476,42 @@ All states are persisted in `OtaControlBlock_t` (FRAM config sector). The state 
                             ▼
          ┌─────────────────────────────────────────────┐
          │       OTA_STATE_POLLING_VERSION             │
-         │  GET /ota/version                           │
-         │  Response parsed: {"version": "X.Y"}        │
+         │  GET <UPDATE_PATH>/?id=rrrsss               │
+         │  Response: V.XXXXX:L.YYYYYYY:H.SHA256:W.SEC │
          └──────────────────┬──────────────────────────┘
-                            │  server version > running version
+                            │  server version > running version?
+                   ┌────────┴────────┐
+                   │                 │
+               YES │                 │ NO → OTA_STATE_IDLE
+                   ▼                 │
+         ┌──────────────────┐    ┌───┴──────────────┐
+         │  W > 0?          │    │ Stop (no update) │
+         │ (Rollout gate)   │    └──────────────────┘
+         ├──────────────────┤
+      YES│  W.>0 (too       │
+         │   early)         │
+         ▼                  │
+    ┌─────────────────────┐ │
+    │ Wait W seconds,     │ │
+    │ return to           │ │
+    │ OTA_STATE_IDLE      │ │
+    │ Retry on next poll  │ │
+    └─────────────────────┘ │
+                            │
+                    NO/W.0 ──┘
                             ▼
          ┌─────────────────────────────────────────────┐
-         │       OTA_STATE_FETCHING_METADATA           │
-         │  GET /ota/metadata                          │
-         │  Response: {size, crc32, sha256, url}        │
-         │  Stored in OTA Staging Header (FRAM)         │
-         └──────────────────┬──────────────────────────┘
-                            │  metadata valid
-                            ▼
-         ┌─────────────────────────────────────────────┐
-         │         OTA_STATE_DOWNLOADING               │◄──┐
-         │  GET /ota/download  (chunked loop)          │   │ resume after
-         │  512-byte chunks → FRAM staging             │   │ power loss
+         │     OTA_STATE_DOWNLOADING (Phase 2)         │◄──┐
+         │  GET <UPDATE_PATH>/get_firmware?offset=...  │   │ resume after
+         │  &length=512&id=rrrsss  (chunked loop)     │   │ power loss
+         │  512-byte chunks + CRC → FRAM staging       │   │
          │  Download bitmap updated per chunk          │   │
          └──────────────────┬──────────────────────────┘   │
                             │  bitmap full (all chunks)─────┘
                             ▼
          ┌─────────────────────────────────────────────┐
          │       OTA_STATE_DOWNLOAD_COMPLETE           │
-         │  CRC-32 + SHA-256 verification              │
+         │  Per-chunk CRC + SHA-256 verification       │
          └──────────────────┬──────────────────────────┘
                             │  integrity check PASS
                             ▼
@@ -512,7 +530,7 @@ All states are persisted in `OtaControlBlock_t` (FRAM config sector). The state 
                             │  bootloader flashes + jumps to new app
                             ▼
          ┌─────────────────────────────────────────────┐
-         │       OTA_STATE_CONFIRMING                  │
+         │       OTA_STATE_CONFIRMING (Phase 3)        │
          │  New firmware running.                      │
          │  App must call ota_confirm_success()        │
          │  within T_confirm = 60 s                    │
@@ -524,9 +542,10 @@ All states are persisted in `OtaControlBlock_t` (FRAM config sector). The state 
          │  ota_confirmed=1, ota_pending=0             │
          └─────────────────────────────────────────────┘
 
-  Integrity FAIL    → OTA_STATE_IDLE (staging invalidated, old FW retained)
-  ota_tried >= 3    → Bootloader boots old Flash image unchanged
-  T_confirm timeout → IWDG fires → bootloader rollback
+  Integrity FAIL         → OTA_STATE_IDLE (staging invalidated, old FW retained)
+  ota_tried >= 3         → Bootloader boots old Flash image unchanged
+  T_confirm timeout      → IWDG fires → bootloader rollback
+  HTTP 429 (Not Your Slot) → Treated as network error; device retries next cycle
 ```
 
 ---
@@ -541,7 +560,8 @@ The bootloader is a **separate PlatformIO environment** (no FreeRTOS) linked at 
 2. Read `OtaControlBlock_t` (primary + mirror) from FRAM `0x0FE080`.
 3. If `ota_pending == 0x01` and `ota_tried < 3`:
    - Increment `ota_tried`, write back both copies.
-   - Validate image CRC-32 over FRAM staging area.
+   - Reject if `ocb.image_size == 0` or `ocb.image_size > FLASH_APP_SIZE_MAX` (480 KB); fall through to old app.
+   - Validate image **SHA-256** over FRAM staging area (`ocb.image_size` bytes) against `ocb.image_sha256`. Whole-image CRC-32 is **not** used (see §11.2); SHA-256 is the sole whole-image integrity check.
    - If valid: program application Flash pages (erase → write → read-back verify).
    - On all pages verified: clear `ota_pending`, set `ota_confirmed = 0`, jump to `0x08008000`.
    - On any page failure: clear `ota_pending`, set error code, jump to old `0x08008000`.
@@ -635,45 +655,83 @@ The `OtaManagerTask` wakes on the same RTC alarm used by `UploadTask` (twice dai
 
 `UPDATE_PATH` is a base URL stored in `Meta_Data_t.update_path` (64 bytes) in the Config Sector.  It is runtime-configurable via the CDC `set config` command.  No JSON is used — the protocol uses plain text and raw binary to minimise modem bandwidth.
 
+> **UPDATE_PATH configuration (Q-S1 Option B).** The server mounts **all** device traffic — sensor ingest, OTA metadata poll, and OTA chunk download — under the same base path. Set `update_path = "/api/v1/weather"` (no trailing slash; firmware appends one). The concrete URLs built at runtime are:
+> - `https://<server_name>/api/v1/weather/upload` (ingest, POST)
+> - `https://<server_name>/api/v1/weather/?id=<rrrsss>` (OTA version + wait token, GET)
+> - `https://<server_name>/api/v1/weather/get_firmware?offset=X&length=512&id=<rrrsss>` (OTA chunk, GET)
+
+> **Device identity bounds (Q-S7).** `region_id` and `station_id` in `Meta_Data_t` are **constrained to 0–999 inclusive**. When building the `?id=` query parameter the firmware applies `% 1000` to each field before formatting `%03u%03u`, so any mis-provisioned station whose stored value exceeds 999 is still mapped to a valid 6-digit identifier the server regex `^\d{6}$` accepts. CDC `set config` validation rejects out-of-range input as a matter of hygiene; the mod-1000 crop is the on-wire safety net.
+
 #### Endpoint 1 — Version + Size Check
 
 ```
-GET <UPDATE_PATH>/
+GET <UPDATE_PATH>/?id=<rrrsss>
 ```
 
-Response: an HTML page whose body contains **only** the version/size/hash token:
+Response: an HTML page whose body contains **only** the version/size/hash/wait token:
 
 ```text
-V.#####:L.$$$$$$$:H.<sha256hex>
+V.#####:L.$$$$$$$:H.<sha256hex>:W.<seconds>
 ```
 
+**Query parameter:**
+- `id` — Device identity: 6-character decimal string `{region:03d}{station:03d}` (e.g., `001002` for region 001, station 002). Required for server-side rollout slot computation.
+
+**Response fields** (delimited by `:`):
 - `V.#####` — server firmware version as a decimal `uint32_t` (no padding, no leading zeros required)
 - `L.$$$$$$$` — firmware image size in bytes as a decimal `uint32_t` (no padding)
 - `H.<sha256hex>` — SHA-256 of the firmware image as 64 lowercase hex characters
-- Fields delimited by `:`, terminated by `\n`; trailing whitespace is ignored
-- The response is `Content-Type: text/html`; the parser must **scan** the full response buffer for `V.\d+:L.\d+:H.[0-9a-f]{64}` — do not assume the token starts at byte 0
-- Any response that does not contain this pattern → OTA skipped silently (treat as "no update"); **do not retry**
-- The device compares `V` against the compile-time constant `FW_VERSION`. If `V` ≤ `FW_VERSION` → stop.
+- `W.<seconds>` — rollout wait time (uint32, decimal). `W.0` = download permitted now; `W.>0` = device must wait this many seconds before retrying.
+
+**Backward compatibility:** A response lacking the `:W.<seconds>` suffix is treated as `W.0` (download permitted immediately), allowing pre-rollout firmware to interoperate with a rollout-aware server.
+
+**Parsing:**
+- The response is `Content-Type: text/html`; the parser must **scan** the full response buffer for `V.\d+:L.\d+:H.[0-9a-f]{64}(?::W.\d+)?` — do not assume the token starts at byte 0
+- Any response that does not contain at least the `V.`/`L.`/`H.` pattern → OTA skipped silently (treat as "no update"); **do not retry**
+- The device compares `V` against the compile-time constant `FW_VERSION`. If `V` ≤ `FW_VERSION` → stop (no update needed).
+- The device rejects the update (returns to `OTA_STATE_IDLE`, 0 retries) if `L` exceeds `FLASH_APP_SIZE_MAX` (480 KB, the app Flash partition size). This catches server misconfiguration early, before any chunk is fetched.
+- If `W > 0`: return to `OTA_STATE_IDLE` and retry on the next scheduled poll (no download commenced).
 - Retry policy: up to 3 retries on modem/network errors; 0 retries on a parseable but non-matching body.
 
 #### Endpoint 2 — Binary Download
 
 ```
-GET <UPDATE_PATH>/get_firmware.php?offset=<byte_offset>&length=<byte_count>
+GET <UPDATE_PATH>/get_firmware?offset=<byte_offset>&length=<byte_count>&id=<rrrsss>
 ```
 
 Response: `<byte_count>` bytes of firmware data followed by a 4-byte little-endian CRC-32/MPEG-2 of that chunk.  Total HTTP response body = `<byte_count> + 4`.
 
-- `offset` and `length` are optional; omit both to download the image from the beginning.
-- For resume: supply `offset` equal to the byte offset of the first missing chunk (derived from the download bitmap in FRAM).
+**Query parameters:**
+- `offset` — Byte offset in firmware image (optional; defaults to 0).
+- `length` — Number of bytes to read (optional; defaults to 512). Device typically requests 512 bytes per chunk.
+- `id` — Device identity: 6-character decimal string `{region:03d}{station:03d}` (required for server-side slot re-evaluation on every request).
+
+**Response behavior:**
+- HTTP `200 OK` with `<length>` bytes + 4-byte CRC trailer → chunk valid, write to FRAM
+- HTTP `429 Too Many Requests` → device is out-of-slot (server re-evaluated `W` after Phase 1); device treats as network error and retries later
+- Other errors → retry up to 3× per chunk
+
 - Per-chunk CRC is validated by `ssl_downloader_get_chunk()` before writing to FRAM; `SSL_DL_ERR_CRC` is returned on mismatch.
 - The device reads via `AT+HTTPREAD=0,516` (512 data + 4 CRC); A7670E **HTTP(S) service** — see §10.3.
-- Retry policy: up to 3 retries per chunk on modem/network errors or CRC mismatch.
+- Retry policy: up to 3 retries per chunk on modem/network errors, CRC mismatch, or HTTP `429`.
 
 ### 10.3 Chunked Download Loop
 
 ```c
 /* Pseudo-code */
+
+/* Phase 1: Fetch metadata including rollout wait time */
+char version_url[HTTPS_DL_URL_MAX_LEN];
+snprintf(version_url, sizeof(version_url),
+         "%s/?id=%03u%03u",
+         update_path, region_id, station_id);
+/* Parse response: locate V.XXXXX:L.YYYYYYY:H.<sha256>:W.<seconds> */
+/* If W > 0, return to OTA_STATE_IDLE and retry on next poll */
+if (wait_seconds > 0) {
+    return OTA_STATE_IDLE;
+}
+
+/* Phase 2: Download chunks with offset/length and id parameter */
 uint16_t next_chunk;
 uint32_t offset   = oiw_resume_info(&next_chunk) ? next_chunk * CHUNK_SIZE : 0u;
 uint32_t retries  = 0u;
@@ -686,8 +744,9 @@ sha256_init(&sha_ctx);
 while (offset < image_size_bytes) {
     uint32_t req_len = MIN(CHUNK_SIZE, image_size_bytes - offset);
     snprintf(chunk_url, sizeof(chunk_url),
-             "%s/get_firmware.php?offset=%lu&length=%lu",
-             update_path, (unsigned long)offset, (unsigned long)req_len);
+             "%s/get_firmware?offset=%lu&length=%lu&id=%03u%03u",
+             update_path, (unsigned long)offset, (unsigned long)req_len,
+             region_id, station_id);
 
     uint16_t got;
     SslDlResult_t rc = ssl_downloader_get_chunk(chunk_url, chunk_buf,
@@ -766,7 +825,7 @@ AT+HTTPTERM
 ```
 AT+HTTPINIT
 AT+HTTPPARA="SSLCFG",0
-AT+HTTPPARA="URL","https://.../get_firmware.php?offset=X&length=512"
+AT+HTTPPARA="URL","https://.../get_firmware?offset=X&length=512"
 AT+HTTPACTION=0
 ← +HTTPACTION: 0,200,<datalen>  (URC)
 AT+HTTPREAD=0,512
@@ -843,7 +902,7 @@ For production, firmware images should be signed with ECDSA P-256. The bootloade
 | `ModemTask` | 4 (AboveNormal) | 768 | Queue message | Existing; AT channel arbiter |
 | `WatchdogTask` | 5 (High) | 256 | 500 ms `vTaskDelay` | **New**; per-task heartbeat + IWDG refresh |
 
-**Total FreeRTOS stack commitment:** (512 + 1024 + 1024 + 768 + 256) × 4 = ~14.3 KB  
+**Total FreeRTOS stack commitment:** (512 + 1024 + 1024 + 768 + 256) × 4 = ~14.3 KB
 **Remaining for heap + static globals:** 96 KB − 14.3 KB − HAL/BSS ≈ 70 KB — within budget.
 
 ### 12.2 Inter-Task Communication
@@ -1047,6 +1106,40 @@ These tasks fix known stability issues that would cause silent OTA failures.
 | P3-7 | ⏳ | **Hardware test:** server version == device version → no download initiated |
 | P3-8 | ⏳ | **Hardware test:** server version > device version → full OTA state machine completes |
 
+### Phase 3.1 — Rollout Gate + Device Identity (firmware)
+
+> Firmware-side companion to the server-side rollout mechanism in `Server_Architecture.md` §3.2/§3.3. Implements the Q-S2 and Q-S7 resolutions from `Server_Architecture.md` §10.
+> Protocol: `V.XXXXX:L.YYYYYYY:H.<sha256>:W.<seconds>` (W optional, missing → 0).
+
+| Task | Status | Description |
+|------|--------|-------------|
+| P3.1-1 | ✅ | `parse_version_response()` in `Src/ota_manager_task.c` extracts the optional `W.<seconds>` field; missing token defaults to `W.0` (backward-compat with pre-rollout server) |
+| P3.1-2 | ✅ | `OtaManagerTask` state machine gates on `W`: `W > 0` → return to `OTA_STATE_IDLE`, no download; `W == 0` → proceed (retry on the next scheduled poll) |
+| P3.1-3 | ✅ | 6-char device identity `{region:03d}{station:03d}` built from `Meta_Data_t.region_id` and `.station_id`; both fields cropped with `% 1000` at URL-build time (Q-S7) |
+| P3.1-4 | ✅ | Metadata GET URL now includes `?id=rrrsss` (was bare `<UPDATE_PATH>/`) |
+| P3.1-5 | ✅ | Chunk GET URL now includes `&id=rrrsss` (was `offset=X&length=Y` only) |
+| P3.1-6 | ✅ | HTTP `429 Too Many Requests` on `/get_firmware` already maps to `SSL_DL_ERR_HTTP` in `a7670_ssl_downloader.c` and the per-chunk retry loop handles it (up to 3× per chunk); no new code path needed |
+| P3.1-7 | ✅ | Build verification 2026-04-21: app 22.7% RAM / 9.3% Flash (unchanged from Phase 3); bootloader 2.8% / 0.7%; backward compatibility with pre-rollout server confirmed (missing `W.` → `W.0`) |
+| P3.1-8 | ⏳ | **Hardware test:** server returns `V.100:L.512:H.[sha]:W.3600` → device waits, retries next cycle |
+| P3.1-9 | ⏳ | **Hardware test:** server returns `V.100:L.512:H.[sha]:W.0` → device proceeds to download immediately |
+| P3.1-10 | ⏳ | **Hardware test:** server returns `V.100:L.512:H.[sha]` (no `:W.`) → treated as `W.0` |
+
+### Phase 3.2 — Image Size Guard (Device-Side Flash Partition Limit)
+
+> Cross-document review 2026-04-21 identified that firmware accepts any `L.` value up to `OIW_MAX_IMAGE_SIZE` (the FRAM staging ceiling, ~520 KB) but does not enforce the **actual** app Flash partition limit (`FLASH_APP_SIZE_MAX = 480 KB`, per §6). A server-uploaded binary larger than 480 KB would be downloaded in full, then fail at SHA-256 verify or silently corrupt Flash beyond page 255. The server gate (`MAX_FIRMWARE_SIZE_BYTES = 480 KB`, HTTP 413) rejects oversize uploads, but the device check is defence-in-depth — see `Server_Architecture.md §3.4`.
+>
+> §10.2 and §9.1 already document the *desired* device behaviour; Phase 3.2 implements it.
+
+| Task | Status | Description |
+|------|--------|-------------|
+| P3.2-1 | ⏳ | Add `FLASH_APP_SIZE_MAX` constant (= `480 * 1024`) to `shared/fram_addresses.h`; cite §6 for the origin |
+| P3.2-2 | ⏳ | In `Src/ota_manager_task.c` `POLLING_VERSION` state, after `parse_version_response()` succeeds: if `image_size > FLASH_APP_SIZE_MAX` → log error, clear staging intent, return to `OTA_STATE_IDLE` with 0 retries (same class as "parseable but non-matching body" per §10.2) |
+| P3.2-3 | ⏳ | In `bootloader/src/main.c`, before `verify_image_sha256()`: if `ocb.image_size == 0 \|\| ocb.image_size > FLASH_APP_SIZE_MAX` → treat as corrupted OCB, fall through to old app (strengthens §9.1 step 3) |
+| P3.2-4 | ⏳ | Build verification: both envs compile; app RAM/Flash budgets unchanged |
+| P3.2-5 | ⏳ | Unit test (host): `parse_version_response()` with `L.524288` (512 KB) → caller rejects; with `L.491520` (480 KB) → caller accepts |
+| P3.2-6 | ⏳ | **Hardware test:** server advertises oversize image → device polls, parses, rejects without downloading; WatchdogTask unaffected |
+| P3.2-7 | ⏳ | **Hardware test:** corrupt OCB with `image_size = 0xFFFFFFFF` → bootloader falls through to old app |
+
 ### Phase 4 — Integration & Field Testing
 
 | Task | Description |
@@ -1065,36 +1158,38 @@ These tasks fix known stability issues that would cause silent OTA failures.
 
 | ID | Risk | Probability | Impact | Mitigation |
 |----|------|-------------|--------|-----------|
-| R-1 | Power loss during Flash programming bricks device | Medium | Critical | Bootloader keeps old image until all pages pass read-back; IWDG prevents infinite hang |
-| R-2 | Code + rodata exceeds 512 KB budget | Medium | High | Linker `ASSERT` fails the build; monitor with `pio size` at each phase |
-| R-3 | Data (BSS + heap + stack) exceeds 96 KB | Medium | High | Linker `ASSERT`; WatchdogTask detects stack overflow at runtime |
-| R-4 | `AT+HTTPREAD` returns fewer bytes than requested — partial chunk | Low | High | CRC-32 + SHA-256 final check catches corruption; retry per-chunk on mismatch |
-| R-5 | New firmware hangs before `ota_confirm_success()` | Medium | High | T_confirm = 60 s; IWDG fires → bootloader rollback |
-| R-6 | FRAM config sector address mismatch between app and bootloader | Medium | Critical | Single `shared/fram_addresses.h` included by both environments |
-| R-7 | SPI1 bus contention (DB reads racing OTA writes) | Medium | Medium | `g_fram_spi_mutex` serialises all access; OTA yields promptly |
-| R-8 | Server returns metadata CRC that does not match image | Low | Medium | Locally computed CRC cross-checked against both server values |
-| R-9 | OTA download time exceeds modem session timeout | Low | Medium | Resume bitmap allows re-connection and continuation |
-| R-10 | CubeMX regeneration overwrites hand-edited HAL files | Medium | Medium | All custom code in `src/`; CubeMX only writes to `CubeMX/Core/` |
+| ~~R-1~~ | ~~Power loss during Flash programming bricks device~~ | — | — | **RESOLVED:** `boot_flash.c` programs one page at a time; refreshes IWDG per page; D-cache reset before each read-back `memcmp`; `ocb.ota_pending` cleared only after all pages pass verify |
+| ~~R-2~~ | ~~Code + rodata exceeds 512 KB budget~~ | — | — | **RESOLVED:** `ldscript_app.ld` `ASSERT((_etext - ORIGIN(FLASH)) <= 480K, ...)` aborts the build if violated; app currently at 9.3% Flash |
+| ~~R-3~~ | ~~Data (BSS + heap + stack) exceeds 96 KB~~ | — | — | **RESOLVED:** `ldscript_app.ld` `ASSERT((_ebss - ORIGIN(RAM)) <= 96K, ...)` aborts the build; app currently at 22.7% RAM; `INCLUDE_uxTaskGetStackHighWaterMark = 1`; WatchdogTask kills IWDG on missed heartbeat |
+| ~~R-4~~ | ~~`AT+HTTPREAD` returns fewer bytes than requested — partial chunk~~ | — | — | **RESOLVED:** `a7670_ssl_downloader.c` validates per-chunk CRC-32 trailer; `ota_manager_task.c` retries up to 3× on `SSL_DL_ERR_CRC`; final SHA-256 verified before OCB committed |
+| ~~R-5~~ | ~~New firmware hangs before `ota_confirm_success()`~~ | — | — | **RESOLVED:** `ota_manager_task.c` `CONFIRM_TICKS = 120` (60 s); hung firmware misses `wdt_kick()` → IWDG fires → bootloader rollback via OCB state |
+| ~~R-6~~ | ~~FRAM config sector address mismatch between app and bootloader~~ | — | — | **RESOLVED:** `shared/fram_addresses.h` in both `build_src_filter` entries in `platformio.ini`; both `boot_flash.c` and bootloader `main.c` include it directly |
+| ~~R-7~~ | ~~SPI1 bus contention (DB reads racing OTA writes)~~ | — | — | **RESOLVED:** all FRAM access in `ota_manager_task.c` wrapped in `xSemaphoreTake(g_fram_spi_mutex, ...)`; `vTaskDelay` between chunks yields the bus |
+| ~~R-8~~ | ~~Server returns metadata CRC that does not match image~~ | — | — | **RESOLVED:** `ota_manager_task.c` — `sha256_final()` result compared against `ocb.image_sha256` received from server; mismatch clears OCB and returns to `OTA_STATE_IDLE` |
+| ~~R-9~~ | ~~OTA download time exceeds modem session timeout~~ | — | — | **RESOLVED:** `ota_image_writer.c` maintains per-chunk download bitmap in FRAM; `oiw_resume_info()` returns first missing chunk; downloader passes `offset` query param to server to resume |
+| ~~R-10~~ | ~~CubeMX regeneration overwrites hand-edited HAL files~~ | — | — | **RESOLVED:** all edits in CubeMX files (`freertos.c`, `main.c`, etc.) within `USER CODE BEGIN/END` guards; OTA-specific files (`ota_manager_task.c`, `ota_image_writer.c`, `watchdog_task.c`) are independent of CubeMX output |
 | ~~R-11~~ | ~~NTP sync not confirmed before TLS opens — clock at epoch 0 fails cert validity check~~ | — | — | **RESOLVED:** `at_channel_send_cntp()` suppresses immediate OK; signals AT_OK only on `+CNTP: 0` URC (AT_ERROR on any non-zero err); 12 s timeout covers 10 s modem maximum |
 | R-12 | Cert arrays compiled as DER but `AT+CCERTDOWN` requires PEM — silent FS corruption | Medium | Critical | Verify `-----BEGIN` header in each cert array; rename `*_der.c` files to `*_pem.c` if confirmed PEM |
 | ~~R-13~~ | ~~CCH service still running when OTA downloader calls `AT+CHTTPSSTART`~~ | — | — | **RESOLVED (Phase 2.1):** CCH service eliminated entirely; both upload and download use `AT+HTTP*` |
 | ~~R-14~~ | ~~`AT+CCHRECV` 64-byte capture truncated~~ | — | — | **RESOLVED (Phase 2.1):** `a7670_ssl_uploader.c` deleted; CCH no longer used |
-| R-15 | I-cache/D-cache stale data after Flash programming — D-cache returns pre-erase data to read-back `memcmp`; I-cache serves old app instructions after jump | High | Critical | Reset D-cache before each `memcmp` verify; reset I-cache after all pages written; see §9.4 |
+| ~~R-15~~ | ~~I-cache/D-cache stale data after Flash programming — D-cache returns pre-erase data to read-back `memcmp`; I-cache serves old app instructions after jump~~ | — | — | **RESOLVED:** `boot_flash.c` — `__HAL_FLASH_DATA_CACHE_DISABLE/RESET/ENABLE` before each `memcmp` verify; `__HAL_FLASH_INSTRUCTION_CACHE_DISABLE/RESET/ENABLE` after all pages written; see §9.4 |
 
 ---
 
-## 16. Open Questions & Decisions Required
+## 16. Design Decisions
 
-| # | Question | Options | Recommendation |
-|---|----------|---------|---------------|
-| Q-1 | Dual-bank Flash swap or copy-in-place? | Dual-bank atomic swap vs copy-in-place with old-image retention | Copy-in-place for v1 (simpler); dual-bank as Phase 5 |
-| Q-2 | Firmware image signing for v1? | ECDSA P-256 vs CRC-32 + SHA-256 only | CRC-32 + SHA-256 for v1; signing in Phase 5 |
-| Q-3 | OTA download in background or pause data collection? | Pause vs background with mutex | Background; OTA yields SPI mutex between chunks |
-| Q-4 | Confirmation window duration? | 30 / 60 / 120 seconds | 60 seconds |
-| Q-5 | TLS server authentication? | None / CA validation / certificate pinning | CA validation for v1; pinning for production |
-| Q-6 | ~~JSON parser library or hand-rolled?~~ | N/A — protocol uses plain text, no JSON | Plain text `sscanf`-style parse; no parser library needed |
-| Q-7 | ~~SHA-256 source?~~ | **Resolved** — mbedTLS is NOT present; A7670E TLS runs entirely on the modem processor, not the STM32 | Use standalone `sha256.c` port (no mbedTLS dependency) |
-| Q-8 | OTA check frequency? | Twice daily (with upload) vs separate schedule | Twice daily, same session as upload to save modem wake cost |
+All questions from the initial design phase are resolved and implemented.
+
+| # | Decision |
+|---|----------|
+| Q-1 | **Copy-in-place** for v1 — bootloader programs FRAM staging image to Bank 1 pages 16–255; dual-bank atomic swap deferred to Phase 5 |
+| Q-2 | **CRC-32/MPEG-2 + SHA-256** for v1 (`shared/crc32.c`, `shared/sha256.c`); Ed25519 firmware signing deferred to Phase 5 |
+| Q-3 | **Background download** — `OtaManagerTask` yields `g_fram_spi_mutex` between 512-byte chunks; sensor collection and uploads continue uninterrupted |
+| Q-4 | **60-second confirmation window** — new app must call `ota_confirm_success()` within 60 s; IWDG fires and bootloader rolls back otherwise |
+| Q-5 | **Private CA validation** (mTLS) for v1 — see `Server_Architecture.md` §2.1; certificate pinning deferred to production hardening |
+| Q-6 | **No JSON** — protocol uses plain-text `V.#####:L.$$$$$$$:H.<sha256>:W.<seconds>`; sscanf-style parse, no parser library |
+| Q-7 | **Standalone `shared/sha256.c`** — mbedTLS not present on STM32; A7670E TLS runs on modem processor |
+| Q-8 | **Twice daily** — `OtaManagerTask` triggered by `xTaskNotify` from `ssluploadtask` after each upload session |
 
 ---
 
@@ -1120,6 +1215,6 @@ These tasks fix known stability issues that would cause silent OTA failures.
 
 ---
 
-*Document Version 1.5 — prepared for Claude Code consumption*  
-*Target audience: Firmware engineering team / Claude Code AI agent*  
-*Next review: After Phase 3 hardware testing / Phase 4 start*
+*Document Version 2.0 — prepared for Claude Code consumption*
+*Target audience: Firmware engineering team / Claude Code AI agent*
+*Next review: After Phase 3.2 implementation / Phase 3.1 hardware testing*

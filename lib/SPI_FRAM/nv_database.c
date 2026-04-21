@@ -70,8 +70,9 @@ static const Meta_Data_t initial_meta = {
     .pressure_adj = 0.0f,
     .light_adj = 0u,
     .rainfall_adj = 0.0f,
-    .server_name = "robin.cpe.ku.ac.th",
-    .server_path = "/weather/WeatherUpload.php"};
+    .server_name = "robin-gpu.cpe.ku.ac.th",
+    .server_path = "/api/v1/weather/upload",
+    .update_path = "/api/v1/weather"};
 
 /* ---- Module-private globals ----------------------------------- */
 static Operation_Data_t oper;

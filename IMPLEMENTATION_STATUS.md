@@ -81,6 +81,39 @@ Implement phases **strictly in order**. Each phase must pass all listed tests be
 
 ---
 
+## Phase 3.1 — Firmware Protocol Update (Rollout Gate + Device Identity)
+
+> Server-side rollout mechanism introduced: 20-slot schedule with `W.<seconds>` wait times.
+> Device must send `id` parameter on both metadata and download endpoints.
+> Protocol now: `V.XXXXX:L.YYYYYYY:H.<sha256>:W.<seconds>`
+
+- [x] P3.1-1 Update version response parser in `Src/ota_manager_task.c`: `parse_version_response()` now takes `uint32_t *wait_seconds` and extracts optional `:W.<seconds>` suffix; defaults to `0` when absent
+- [x] P3.1-2 Implement rollout gate logic in `Src/ota_manager_task.c`: on `wait_seconds > 0`, POLLING_VERSION returns to `OTA_STATE_IDLE` without downloading; retry on next scheduled poll
+- [x] P3.1-3 `region_id` / `station_id` read from `s_meta` (`Meta_Data_t`); URL build uses `%03u%03u` format with `% 1000u` crop per Q-S7
+- [x] P3.1-4 Update version endpoint in `Src/ota_manager_task.c`: GET to `<UPDATE_PATH>/?id=rrrsss` (was `<UPDATE_PATH>/`)
+- [x] P3.1-5 Update download endpoint in `Src/ota_manager_task.c` DOWNLOADING state: chunk URL now `get_firmware?offset=X&length=Y&id=rrrsss` (URL is caller-built, downloader lib unchanged)
+- [x] P3.1-6 HTTP `429 Too Many Requests` on `/get_firmware` already maps to `SSL_DL_ERR_HTTP` (retryable) in `a7670_ssl_downloader.c`; per-chunk retry loop re-requests and server re-checks slot eligibility
+- [x] P3.1-7 Build verification 2026-04-21: app 22.7% RAM / 9.3% Flash (unchanged from Phase 3); bootloader 2.8% / 0.7%; backward compatibility with pre-rollout server maintained (missing `W.` → `W.0`)
+- [ ] P3.1-8 Test: server returns `V.100:L.512:H.[sha]:W.3600` → device waits 1 hour, retries next cycle ✓
+- [ ] P3.1-9 Test: server returns `V.100:L.512:H.[sha]:W.0` → device proceeds to download immediately ✓
+- [ ] P3.1-10 Test: server returns `V.100:L.512:H.[sha]` (no `:W.`) → device treats as `W.0` (backward compat) ✓
+
+---
+
+## Phase 3.2 — Image Size Guard (Device-Side Flash Partition Limit)
+
+> Cross-document review 2026-04-21 revealed the firmware accepts any `L.` ≤ `OIW_MAX_IMAGE_SIZE` (4 MB, the download-bitmap ceiling) but does not enforce the **actual** Flash partition limit (`FLASH_APP_SIZE_MAX = 480 KB`, per `OTA_Firmware_Architecture.md §6`). A mis-built or mis-uploaded server binary larger than 480 KB would be downloaded in full, then fail either at bootloader SHA-256 verify or silently corrupt beyond page 255 during Flash programming. Server-side gate added at `Server_Architecture.md §3.4` ("Firmware size ceiling") rejects oversize uploads with HTTP 413; device must enforce the same limit as defence-in-depth.
+
+- [ ] P3.2-1 Add `FLASH_APP_SIZE_MAX` constant (= 480 * 1024) to `shared/fram_addresses.h` (or a new `shared/flash_layout.h`); cite `OTA_Firmware_Architecture.md §6`
+- [ ] P3.2-2 In `Src/ota_manager_task.c` `POLLING_VERSION` state, after `parse_version_response()` succeeds: if `image_size > FLASH_APP_SIZE_MAX` → log error, clear staging intent, return to `OTA_STATE_IDLE` with 0 retries (same class as "parseable but non-matching body" per §10.2)
+- [ ] P3.2-3 In `bootloader/src/main.c`, before `verify_image_sha256()`: if `ocb.image_size == 0 || ocb.image_size > FLASH_APP_SIZE_MAX` → treat as corrupted OCB, fall through to old app (matches `OTA_Firmware_Architecture.md §9.1` step 3 updated guidance)
+- [ ] P3.2-4 Build verification: both envs compile; app RAM/Flash budgets unchanged
+- [ ] P3.2-5 Unit test (host): `parse_version_response()` with `L.524288` (512 KB) → caller rejects; with `L.491520` (480 KB) → caller accepts
+- [ ] P3.2-6 Hardware test: server advertises oversize image → device polls, parses, rejects without downloading; WatchdogTask unaffected
+- [ ] P3.2-7 Hardware test: corrupt OCB with `image_size = 0xFFFFFFFF` → bootloader falls through to old app (covers P1-11 boundary)
+
+---
+
 ## Phase 4 — Integration & Field Testing
 
 - [ ] P4-1 End-to-end: upload → version check → download → OTA → confirm ✓
