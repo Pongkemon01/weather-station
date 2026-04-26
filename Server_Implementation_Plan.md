@@ -70,13 +70,13 @@ Prepare the Ubuntu server before any application code runs.
 
 > **Ownership note:** During development `html/` and all runtime subdirs are owned by `akp`. The `iotsrv` service user and ownership transfer apply to production deployment only (S0-3).
 
-- [ ] S0-1 Confirm host OS (`lsb_release -a`), Python ≥ 3.12 available, systemd present
-- [ ] S0-2 Install system packages: `nginx`, `postgresql-17` (target host standard), `python3.12-venv`, `certbot`, `git`. **TimescaleDB is built from source** on this deployment (no `timescaledb-*` apt package); follow the TimescaleDB "build from source" procedure against the installed PostgreSQL 17 headers — see Arch §10 Q-S12
-- [ ] S0-3 **Production only:** create dedicated service user `iotsrv` with no login shell; transfer ownership of `html/` to `iotsrv` (`chown -R iotsrv:iotsrv html/`)
-- [ ] S0-4 Create runtime subdirs under `html/`: `firmware/` (mode `0750`), `logs/`, `pki/` (mode `0700`), `etc/`; owner is `akp` in development, `iotsrv` in production; confirm all four are listed in `.gitignore`
-- [ ] S0-5 Enable UFW: allow 22, 443; deny 8000 (FastAPI listens only on 127.0.0.1)
-- [ ] S0-6 Initialize TimescaleDB extension in `weather` database; in development use role `akp`, in production create role `iotsrv` with password from env vault
-- [ ] S0-7 Verification: `psql -U akp -d weather -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';"` returns a version (substitute `iotsrv` in production) ✓
+- [x] S0-1 Confirm host OS (`lsb_release -a`), Python ≥ 3.12 available, systemd present — **Debian 13 (trixie), Python 3.13.5, systemd 257** ✓
+- [x] S0-2 Install system packages: `nginx`, `postgresql-17` (target host standard), `python3-venv`, `certbot`, `git`. **TimescaleDB built from source already present** (`~/timescaledb/`, v2.27.0-dev against PG17). Also installed: `ufw`, `build-essential`, `libpq-dev` ✓
+- [x] S0-3 **Production only:** create dedicated service user `iotsrv` with no login shell; transfer ownership of `html/` to `iotsrv` (`chown -R iotsrv:iotsrv html/`) — **SKIPPED (dev mode; `akp` owns `html/`)** ✓
+- [x] S0-4 Create runtime subdirs under `html/`: `firmware/` (mode `0750`), `logs/`, `pki/` (mode `0700`), `etc/`; all four listed in `html/.gitignore`. **Server `html/` is at `~/html/` (not `~/weather-station/html/`); dirs created with correct permissions** ✓
+- [x] S0-5 Enable UFW: allow 22, 443; deny 8000 — **UFW installed and active; rules confirmed** ✓
+- [x] S0-6 Initialize TimescaleDB extension in `weather` database; created `akp` PostgreSQL role with LOGIN+CREATEDB; created `weather` database owned by `akp`; `CREATE EXTENSION timescaledb` succeeded ✓
+- [x] S0-7 Verification: `psql -U akp -d weather -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';"` — **returned `2.27.0-dev`** ✓
 
 ---
 
@@ -84,13 +84,13 @@ Prepare the Ubuntu server before any application code runs.
 
 Stand up a minimal FastAPI app reachable only via Nginx. No device logic yet.
 
-- [ ] S1-1 Scaffold `html/app/` per directory layout; add `requirements.txt` pinning FastAPI, uvicorn, gunicorn, asyncpg, pydantic-settings, PyJWT, bcrypt, jinja2, python-multipart
-- [ ] S1-2 `app/main.py`: create `FastAPI()`, mount empty routers, add `/health` returning `{"status": "ok"}`
-- [ ] S1-3 `app/config.py`: Pydantic `BaseSettings` loading from `html/etc/iot.env` (DB DSN, JWT secret, `FIRMWARE_DIR` — **must be an absolute path**, resolved via `Path(value).resolve(strict=False)` at startup (Arch §10 Q-S11); the app refuses to start if `FIRMWARE_DIR` is not absolute or not writable; `FIRMWARE_KEEP_N` (default `3`, see Arch §3.4 and Arch §10 Q-S4); `SLOT_LEN_SEC` (default `43200`; must match device firmware upload cadence); `MAX_FIRMWARE_SIZE_BYTES` (default `491520` = 480 KB; matches the STM32L476RG app Flash partition — Arch §3.4 "Firmware size ceiling"))
-- [ ] S1-4 `systemd/iot-server.service`: `gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 2 -b 127.0.0.1:8000`; run as `akp` in development, `iotsrv` in production
-- [ ] S1-5 `scripts/deploy.sh`: `git pull` → `pip install -r requirements.txt` → `sudo systemctl restart iot-server` (system unit, not `--user`; matches S1-4)
-- [ ] S1-6 Commit and SSH-deploy to host; enable service (`systemctl enable --now iot-server`)
-- [ ] S1-7 Verification: `curl http://127.0.0.1:8000/health` on host returns `200 {"status":"ok"}` ✓
+- [x] S1-1 Scaffold `html/app/` per directory layout; add `requirements.txt` pinning FastAPI, uvicorn, gunicorn, asyncpg, pydantic-settings, PyJWT, bcrypt, jinja2, python-multipart
+- [x] S1-2 `app/main.py`: create `FastAPI()`, mount empty routers, add `/health` returning `{"status": "ok"}`
+- [x] S1-3 `app/config.py`: Pydantic `BaseSettings` loading from `html/etc/iot.env` (DB DSN, JWT secret, `FIRMWARE_DIR` — **must be an absolute path**, resolved via `Path(value).resolve(strict=False)` at startup (Arch §10 Q-S11); the app refuses to start if `FIRMWARE_DIR` is not absolute or not writable; `FIRMWARE_KEEP_N` (default `3`, see Arch §3.4 and Arch §10 Q-S4); `SLOT_LEN_SEC` (default `43200`; must match device firmware upload cadence); `MAX_FIRMWARE_SIZE_BYTES` (default `491520` = 480 KB; matches the STM32L476RG app Flash partition — Arch §3.4 "Firmware size ceiling"))
+- [x] S1-4 `systemd/iot-server.service`: `gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 2 -b 127.0.0.1:8000`; run as `akp` in development, `iotsrv` in production
+- [x] S1-5 `scripts/deploy.sh`: `git pull` → `pip install -r requirements.txt` → `sudo systemctl restart iot-server` (system unit, not `--user`; matches S1-4)
+- [x] S1-6 Commit and SSH-deploy to host; enable service (`systemctl enable --now iot-server`) — **2026-04-26: deployed via scp+pip install; service active (running); initial deploy via scp; git-pull workflow requires GitHub SSH key on server (deferred to Phase 5 CI/CD)**
+- [x] S1-7 Verification: `curl http://127.0.0.1:8000/health` on host returns `200 {"status":"ok"}` ✓ **confirmed 2026-04-26**
 
 ---
 
