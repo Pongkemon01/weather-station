@@ -5,13 +5,16 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from app.config import settings
+from app.db import pool
 from app.routers import admin, ota, weather
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _validate_firmware_dir()
+    await pool.init_pool()
     yield
+    await pool.close_pool()
 
 
 def _validate_firmware_dir() -> None:
