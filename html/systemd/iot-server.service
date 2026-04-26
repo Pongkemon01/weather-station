@@ -1,0 +1,19 @@
+[Unit]
+Description=IoT Weather Station Server
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=akp
+WorkingDirectory=/home/akp/html
+EnvironmentFile=/home/akp/html/etc/iot.env
+ExecStart=/home/akp/html/.venv/bin/gunicorn app.main:app \
+    -k uvicorn.workers.UvicornWorker \
+    -w 2 \
+    -b 127.0.0.1:8000 \
+    --timeout 120
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

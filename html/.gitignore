@@ -1,0 +1,17 @@
+# Runtime directories — created at deploy time; never committed
+firmware/
+logs/
+pki/
+etc/iot.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+
+# Environment secrets
+*.env
+!etc/iot.env.example
