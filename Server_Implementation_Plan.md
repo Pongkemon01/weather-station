@@ -111,13 +111,13 @@ Create the schema defined in `Server_Architecture.md` §3.1 and §3.3 and wire u
 
 Implements the binary upload flow from §3.1 and §6.
 
-- [ ] S3-1 `app/auth/mtls.py`: verify `X-SSL-Client-Verify == SUCCESS` (Nginx-set); return 403 on missing/failed; dependency-injectable. No CN extraction — no per-device CN exists (Arch §2.1); device identity comes from payload `(region_id, station_id)` only
-- [ ] S3-2 `app/ota/fixedpt.py`: convert S9.7 fixed-point (int16) → float using `value / 128.0`; mirror `lib/utils/fixedptc.h` sign-extension
-- [ ] S3-3 `app/ota/parser.py`: `parse_upload(payload: bytes) -> (region, station, list[dict])` using `struct.Struct("<HHB")` for header + 18-byte chunks; reject if length ≠ `5 + 18*count`
-- [ ] S3-4 `app/routers/weather.py`: `POST /api/v1/weather/upload` — parse header for (region, station) → `upsert_device_by_region_station()` → idempotency check using `{region:03d}{station:03d}:{first_sample_ts}` key → `INSERT ... ON CONFLICT DO NOTHING` for weather + ingest_log in a single transaction. The ingest, OTA metadata poll, and OTA chunk download all share the `/api/v1/weather/` prefix (Arch §10 Q-S1 Option B), so they live behind one Nginx location block and one rate-limit zone
-- [ ] S3-5 Timestamp conversion: Y2K epoch (seconds since 2000-01-01 UTC) → `TIMESTAMPTZ`; use `datetime(2000,1,1,tzinfo=UTC) + timedelta(seconds=ts)`
-- [ ] S3-6 Update `devices.last_seen` on every successful ingest (same transaction); auto-create the row via upsert when a new `(region_id, station_id)` first reports
-- [ ] S3-7 Verification (unit, `html/tests/`): parse a fixture byte-string produced from a known `Weather_Data_Packed_t` and assert all fields round-trip within ±1 LSB ✓
+- [x] S3-1 `app/auth/mtls.py`: verify `X-SSL-Client-Verify == SUCCESS` (Nginx-set); return 403 on missing/failed; dependency-injectable. No CN extraction — no per-device CN exists (Arch §2.1); device identity comes from payload `(region_id, station_id)` only
+- [x] S3-2 `app/ota/fixedpt.py`: convert S9.7 fixed-point (int16) → float using `value / 128.0`; mirror `lib/utils/fixedptc.h` sign-extension
+- [x] S3-3 `app/ota/parser.py`: `parse_upload(payload: bytes) -> (region, station, list[dict])` using `struct.Struct("<HHB")` for header + 18-byte chunks; reject if length ≠ `5 + 18*count`
+- [x] S3-4 `app/routers/weather.py`: `POST /api/v1/weather/upload` — parse header for (region, station) → `upsert_device_by_region_station()` → idempotency check using `{region:03d}{station:03d}:{first_sample_ts}` key → `INSERT ... ON CONFLICT DO NOTHING` for weather + ingest_log in a single transaction. The ingest, OTA metadata poll, and OTA chunk download all share the `/api/v1/weather/` prefix (Arch §10 Q-S1 Option B), so they live behind one Nginx location block and one rate-limit zone
+- [x] S3-5 Timestamp conversion: Y2K epoch (seconds since 2000-01-01 UTC) → `TIMESTAMPTZ`; use `datetime(2000,1,1,tzinfo=UTC) + timedelta(seconds=ts)`
+- [x] S3-6 Update `devices.last_seen` on every successful ingest (same transaction); auto-create the row via upsert when a new `(region_id, station_id)` first reports
+- [x] S3-7 Verification (unit, `html/tests/`): parse a fixture byte-string produced from a known `Weather_Data_Packed_t` and assert all fields round-trip within ±1 LSB — **`html/tests/test_parser.py` covers single/max-batch/boundary/error cases; 9 parameterized tests** ✓
 - [ ] S3-8 Verification (integration, `server_test/`): see test harness plan T1-series ✓
 
 ---
@@ -128,12 +128,12 @@ Bring traffic through Nginx; enforce client cert validation.
 
 - [ ] S4-1 `scripts/provision_ca.sh`: generate offline root (kept on air-gapped USB), online intermediate signed by root, both as PEM
 - [ ] S4-2 `scripts/issue_device_cert.sh <CN>`: generate device key, CSR, sign with intermediate, emit PEM bundle + private key
-- [ ] S4-3 `nginx/iot_server.conf`: **two `server{}` blocks** (Arch §5, Q-S9). Device vhost (`api.iot.example.com`): TLS 1.2+1.3, private-CA server cert, `ssl_client_certificate {html_dir}/pki/private_ca_chain.pem`, `ssl_crl {html_dir}/pki/ca.crl`, `ssl_verify_client on`, a **single** `location /api/v1/weather/` block (covering ingest + OTA per Q-S1 Option B) that enforces `if ($ssl_client_verify != SUCCESS) return 403` and forwards `X-SSL-Client-Verify`, plus `location /firmware/ { deny all; return 404; }`. Admin vhost (`admin.iot.example.com`): Let's Encrypt server cert, `ssl_verify_client off`, `location /admin/ { proxy_pass ... }` only — **no** client-cert headers forwarded
+- [ ] S4-3 `nginx/iot_server.conf`: **two `server{}` blocks** (Arch §5, Q-S9). Device vhost (`robin-gpu.cpe.ku.ac.th`): TLS 1.2+1.3, private-CA server cert, `ssl_client_certificate {html_dir}/pki/private_ca_chain.pem`, `ssl_crl {html_dir}/pki/ca.crl`, `ssl_verify_client on`, a **single** `location /api/v1/weather/` block (covering ingest + OTA per Q-S1 Option B) that enforces `if ($ssl_client_verify != SUCCESS) return 403` and forwards `X-SSL-Client-Verify`, plus `location /firmware/ { deny all; return 404; }`. Admin vhost (`adm.robinlab.cc`): Let's Encrypt server cert, `ssl_verify_client off`, `location /admin/ { proxy_pass ... }` only — **no** client-cert headers forwarded
 - [ ] S4-4 Rate limit: `limit_req_zone $arg_id zone=device_api:10m rate=10r/s; limit_req zone=device_api burst=20` — **per-device** throttle (Arch §10 Q-S3). Keyed on the `?id=` query parameter that Phase 3.1 firmware guarantees on every device request; do **not** key on `$ssl_client_s_dn` (fleet shares one cert per Arch §2.1)
 - [ ] S4-5 Weekly CRL refresh: systemd timer runs `scripts/refresh_crl.sh` → regenerates CRL from revoked-cert table → `nginx -s reload`
-- [ ] S4-6 Verification: `openssl s_client -cert valid.pem -key valid.key -servername api.iot.example.com -connect HOST:443` completes handshake; device path request reaches FastAPI and `X-SSL-Client-Verify: SUCCESS` appears in access log ✓
-- [ ] S4-7 Verification: request to `https://api.iot.example.com/api/v1/weather/...` without `-cert` flag returns `403` (mandatory mTLS on the device vhost); request to `https://admin.iot.example.com/admin/` without `-cert` flag reaches FastAPI and returns `200` or `401` — admin vhost is a separate listener with `ssl_verify_client off` (Arch §5, Q-S9) ✓
-- [ ] S4-8 Verification: confirm the admin vhost forwards no `X-SSL-Client-*` headers upstream and serves a Let's Encrypt chain (`openssl s_client -servername admin.iot.example.com ...` shows the public CA) ✓
+- [ ] S4-6 Verification: `openssl s_client -cert valid.pem -key valid.key -servername robin-gpu.cpe.ku.ac.th -connect HOST:443` completes handshake; device path request reaches FastAPI and `X-SSL-Client-Verify: SUCCESS` appears in access log ✓
+- [ ] S4-7 Verification: request to `https://robin-gpu.cpe.ku.ac.th/api/v1/weather/...` without `-cert` flag returns `403` (mandatory mTLS on the device vhost); request to `https://adm.robinlab.cc/admin/` without `-cert` flag reaches FastAPI and returns `200` or `401` — admin vhost is a separate listener with `ssl_verify_client off` (Arch §5, Q-S9) ✓
+- [ ] S4-8 Verification: confirm the admin vhost forwards no `X-SSL-Client-*` headers upstream and serves a Let's Encrypt chain (`openssl s_client -servername adm.robinlab.cc ...` shows the public CA) ✓
 
 ---
 
