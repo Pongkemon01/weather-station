@@ -62,5 +62,24 @@ async def insert_weather_records(
     )
 
 
-# Phase 5: get_active_campaign_for_device (stub — implemented in Phase 5)
+# ---------------------------------------------------------------------------
+# Phase 5: OTA chunk-download tracking
+# ---------------------------------------------------------------------------
+
+async def record_chunk_download(
+    conn: asyncpg.Connection, campaign_id: int, device_id: str, chunk_index: int
+) -> None:
+    """Record a successfully served firmware chunk (idempotent)."""
+    await conn.execute(
+        """
+        INSERT INTO download_completions (campaign_id, device_id, chunk_index)
+        VALUES ($1, $2, $3)
+        ON CONFLICT DO NOTHING
+        """,
+        campaign_id,
+        device_id,
+        chunk_index,
+    )
+
+
 # Phase 7: get_max_firmware_version, list_campaigns_by_status, etc. (Phase 7)
