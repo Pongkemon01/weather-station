@@ -1132,11 +1132,11 @@ These tasks fix known stability issues that would cause silent OTA failures.
 
 | Task | Status | Description |
 |------|--------|-------------|
-| P3.2-1 | ⏳ | Add `FLASH_APP_SIZE_MAX` constant (= `480 * 1024`) to `shared/fram_addresses.h`; cite §6 for the origin |
-| P3.2-2 | ⏳ | In `Src/ota_manager_task.c` `POLLING_VERSION` state, after `parse_version_response()` succeeds: if `image_size > FLASH_APP_SIZE_MAX` → log error, clear staging intent, return to `OTA_STATE_IDLE` with 0 retries (same class as "parseable but non-matching body" per §10.2) |
-| P3.2-3 | ⏳ | In `bootloader/src/main.c`, before `verify_image_sha256()`: if `ocb.image_size == 0 \|\| ocb.image_size > FLASH_APP_SIZE_MAX` → treat as corrupted OCB, fall through to old app (strengthens §9.1 step 3) |
-| P3.2-4 | ⏳ | Build verification: both envs compile; app RAM/Flash budgets unchanged |
-| P3.2-5 | ⏳ | Unit test (host): `parse_version_response()` with `L.524288` (512 KB) → caller rejects; with `L.491520` (480 KB) → caller accepts |
+| P3.2-1 | ✅ | Added `FLASH_APP_SIZE_MAX (480u * 1024u)` to `shared/fram_addresses.h` "Application Flash partition limit" section; cites §6 |
+| P3.2-2 | ✅ | `ota_manager_task.c` POLLING_VERSION: replaced `OIW_MAX_IMAGE_SIZE` (512 KB staging ceiling) with `FLASH_APP_SIZE_MAX` (480 KB Flash limit); any `L.` > 480 KB returns to `OTA_STATE_IDLE` without downloading |
+| P3.2-3 | ✅ | `bootloader/src/main.c`: added `ocb.image_size <= FLASH_APP_SIZE_MAX` guard before `verify_image_sha256()` call; `image_size = 0` or `> 480 KB` falls through to existing app |
+| P3.2-4 | ✅ | Build verification 2026-04-26: app 22.7% RAM / 9.3% Flash (unchanged); bootloader 2.8% / 0.7% (unchanged) |
+| P3.2-5 | ✅ | Unit test (host) 2026-04-26: 6/6 pass — 512 KB rejects, 480 KB accepts, 1 byte over rejects, zero size rejects, malformed rejects; `bash scripts/run_native_tests.sh` (WSL2 gcc) |
 | P3.2-6 | ⏳ | **Hardware test:** server advertises oversize image → device polls, parses, rejects without downloading; WatchdogTask unaffected |
 | P3.2-7 | ⏳ | **Hardware test:** corrupt OCB with `image_size = 0xFFFFFFFF` → bootloader falls through to old app |
 

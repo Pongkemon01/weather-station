@@ -102,8 +102,10 @@ int main(void)
         ocb.ota_tried++;
         ocb_write(&ocb);   /* ignore write error — proceed anyway */
 
-        /* Validate staged image integrity via SHA-256. */
+        /* Validate staged image integrity via SHA-256.
+         * Reject image_size == 0 or > 480 KB Flash partition before reading FRAM. */
         if (ocb.image_size > 0u
+            && ocb.image_size <= FLASH_APP_SIZE_MAX
             && verify_image_sha256(ocb.image_size, ocb.image_sha256))
         {
             /* Program Flash. */

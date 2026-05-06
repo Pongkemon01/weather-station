@@ -36,8 +36,7 @@ When starting, always invoke the `karpathy-guidelines` skill.
 | Flash application | `platformio run -t upload` |
 | Flash bootloader | `pio run -e bootloader -t upload` |
 | Lint | `scripts/lint.sh` (clang-format + cpplint; fails on violations) |
-| Unit tests (host/x86, mocked HAL) | `platformio test` |
-| Single test | `platformio test --target <test-name>` |
+| Unit tests (host/x86, mocked HAL) | `wsl bash //scripts/run_native_tests.sh` (no MinGW — uses WSL2 gcc; Unity libs auto-installed by `pio test -e native_test`) |
 | RAM usage report | `scripts/monitor_ram.sh` (budget ≤ 96 KB) |
 | Memory size check | `pio run -t size` |
 | Serial monitor | `pio device monitor -b 115200` (console on USART2) |
@@ -137,7 +136,7 @@ SSL context 0 configured once in `Modem_Module_Init()` via `AT+CSSLCFG`. POST pr
 
 **Known modem issues:**
 
-- Cert data must be PEM with `-----BEGIN`/`-----END` headers; `*_der.c` filenames are misleading.
+- Cert data must be in **DER binary format** (no PEM headers); `*_der.c` filenames are accurate. Convert PEM → DER with `openssl x509 -outform DER` (certs) and `openssl rsa -outform DER` (keys) before generating C byte arrays.
 
 ---
 
@@ -230,3 +229,52 @@ Bootloader uses `bootloader/CubeMX/Bootloader.ioc` with SPI1, IWDG, Flash HAL on
 | USB CDC protocol | `Src/cdctask.c` header block |
 | Server-side code (in `html/`) | `Server_Architecture.md`, `Server_Implementation_Plan.md` |
 | Server verification tests (in `server_test/`) | `Server_Test_Plan.md`, `Server_Architecture.md §3` |
+
+<!-- code-review-graph MCP tools -->
+## MCP Tools: code-review-graph
+
+**IMPORTANT: This project has a knowledge graph. ALWAYS use the
+code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
+the codebase.** The graph is faster, cheaper (fewer tokens), and gives
+you structural context (callers, dependents, test coverage) that file
+scanning cannot.
+
+### When to use graph tools FIRST
+
+- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
+- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
+- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
+- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
+- **Architecture questions**: `get_architecture_overview` + `list_communities`
+
+Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+
+### Key Tools
+
+| Tool | Use when |
+|------|----------|
+| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
+| `get_review_context` | Need source snippets for review — token-efficient |
+| `get_impact_radius` | Understanding blast radius of a change |
+| `get_affected_flows` | Finding which execution paths are impacted |
+| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
+| `semantic_search_nodes` | Finding functions/classes by name or keyword |
+| `get_architecture_overview` | Understanding high-level codebase structure |
+| `refactor_tool` | Planning renames, finding dead code |
+
+### Workflow
+
+1. The graph auto-updates on file changes (via hooks).
+2. Use `detect_changes` for code review.
+3. Use `get_affected_flows` to understand impact.
+4. Use `query_graph` pattern="tests_for" to check coverage.
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)

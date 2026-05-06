@@ -104,11 +104,11 @@ Implement phases **strictly in order**. Each phase must pass all listed tests be
 
 > Cross-document review 2026-04-21 revealed the firmware accepts any `L.` ≤ `OIW_MAX_IMAGE_SIZE` (4 MB, the download-bitmap ceiling) but does not enforce the **actual** Flash partition limit (`FLASH_APP_SIZE_MAX = 480 KB`, per `OTA_Firmware_Architecture.md §6`). A mis-built or mis-uploaded server binary larger than 480 KB would be downloaded in full, then fail either at bootloader SHA-256 verify or silently corrupt beyond page 255 during Flash programming. Server-side gate added at `Server_Architecture.md §3.4` ("Firmware size ceiling") rejects oversize uploads with HTTP 413; device must enforce the same limit as defence-in-depth.
 
-- [ ] P3.2-1 Add `FLASH_APP_SIZE_MAX` constant (= 480 * 1024) to `shared/fram_addresses.h` (or a new `shared/flash_layout.h`); cite `OTA_Firmware_Architecture.md §6`
-- [ ] P3.2-2 In `Src/ota_manager_task.c` `POLLING_VERSION` state, after `parse_version_response()` succeeds: if `image_size > FLASH_APP_SIZE_MAX` → log error, clear staging intent, return to `OTA_STATE_IDLE` with 0 retries (same class as "parseable but non-matching body" per §10.2)
-- [ ] P3.2-3 In `bootloader/src/main.c`, before `verify_image_sha256()`: if `ocb.image_size == 0 || ocb.image_size > FLASH_APP_SIZE_MAX` → treat as corrupted OCB, fall through to old app (matches `OTA_Firmware_Architecture.md §9.1` step 3 updated guidance)
-- [ ] P3.2-4 Build verification: both envs compile; app RAM/Flash budgets unchanged
-- [ ] P3.2-5 Unit test (host): `parse_version_response()` with `L.524288` (512 KB) → caller rejects; with `L.491520` (480 KB) → caller accepts
+- [x] P3.2-1 Add `FLASH_APP_SIZE_MAX` constant (= 480 * 1024) to `shared/fram_addresses.h`; cites `OTA_Firmware_Architecture.md §6`
+- [x] P3.2-2 In `Src/ota_manager_task.c` `POLLING_VERSION` state: replaced `OIW_MAX_IMAGE_SIZE` (512 KB) with `FLASH_APP_SIZE_MAX` (480 KB) — rejects oversized image before any download
+- [x] P3.2-3 In `bootloader/src/main.c`, before `verify_image_sha256()`: added `ocb.image_size <= FLASH_APP_SIZE_MAX` guard — `image_size == 0` or `> 480 KB` falls through to old app
+- [x] P3.2-4 Build verification 2026-04-26: app 22.7% RAM / 9.3% Flash (unchanged); bootloader 2.8% / 0.7% (unchanged) ✓
+- [x] P3.2-5 Unit test (host) 2026-04-26: 6/6 pass — `ovp_parse()` + FLASH_APP_SIZE_MAX guard; 512 KB rejects, 480 KB accepts, 1-byte-over rejects, zero rejects, malformed rejects; run via `bash scripts/run_native_tests.sh` (WSL2)
 - [ ] P3.2-6 Hardware test: server advertises oversize image → device polls, parses, rejects without downloading; WatchdogTask unaffected
 - [ ] P3.2-7 Hardware test: corrupt OCB with `image_size = 0xFFFFFFFF` → bootloader falls through to old app (covers P1-11 boundary)
 

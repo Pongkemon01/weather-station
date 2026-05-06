@@ -1,2 +1,6 @@
 .pio
 .claude
+.opencode
+opencode.json
+# Added by code-review-graph
+.code-review-graph/

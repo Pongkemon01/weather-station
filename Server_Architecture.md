@@ -36,7 +36,7 @@ These two models must not be mixed: device paths enforce a valid client certific
 IoT devices connect to the server **automatically** with no human in the loop. Authentication is performed at the TLS layer using a pre-provisioned X.509 client certificate stored in the A7670E modem at device commissioning time. No password is involved.
 
 - **Mechanism:** Nginx loads the private CA chain and validates each incoming client certificate. Connections without a valid cert are rejected at the TLS layer before any HTTP processing.
-- **A7670E role:** Modem presents the device certificate during TLS handshake (PEM format with `-----BEGIN CERTIFICATE-----` headers).
+- **A7670E role:** Modem presents the device certificate during TLS handshake using **DER binary format** (no PEM headers). Certs and keys must be converted from PEM to DER before being embedded as C byte arrays and uploaded via `AT+CCERTDOWN`.
 - **Nginx verification:** Validates client cert against Private CA and CRL; forwards to FastAPI only if `$ssl_client_verify == SUCCESS`.
 - **Certificate scope:** The entire fleet shares a single client certificate. The cert authenticates *"a device in this fleet"* only — no per-device CN information exists. Device identity comes exclusively from the application payload (`region_id`/`station_id` in §3.1) or the `?id=rrrsss` query parameter (§3.2). `X-Client-DN` is never used as identity.
 - **FastAPI:** Accepts any request with `$ssl_client_verify == SUCCESS`; treats the payload `region_id`/`station_id` as the authoritative device identity for ingest, OTA cohort assignment, and idempotency.
@@ -139,10 +139,10 @@ CREATE TABLE ingest_log (
 
 **Note on UPDATE_PATH:** The device firmware stores a configurable base URL (`UPDATE_PATH`, 64 bytes in Config Sector) accessible via CDC interface. The server mounts all device endpoints — ingest, OTA metadata poll, and OTA chunk download — under this same base path (Q-S1 Option B). Example:
 
-- `UPDATE_PATH = "https://api.iot.example.com/api/v1/weather"` (no trailing slash; firmware appends one).
-- Ingest endpoint: `https://api.iot.example.com/api/v1/weather/upload` (mTLS; §3.1).
-- Metadata endpoint: `https://api.iot.example.com/api/v1/weather/?id=<rrrsss>` (mTLS; identity required).
-- Chunk download: `https://api.iot.example.com/api/v1/weather/get_firmware?offset=X&length=512&id=<rrrsss>` (mTLS; identity required).
+- `UPDATE_PATH = "https://robin-gpu.cpe.ku.ac.th/api/v1/weather"` (no trailing slash; firmware appends one).
+- Ingest endpoint: `https://robin-gpu.cpe.ku.ac.th/api/v1/weather/upload` (mTLS; §3.1).
+- Metadata endpoint: `https://robin-gpu.cpe.ku.ac.th/api/v1/weather/?id=<rrrsss>` (mTLS; identity required).
+- Chunk download: `https://robin-gpu.cpe.ku.ac.th/api/v1/weather/get_firmware?offset=X&length=512&id=<rrrsss>` (mTLS; identity required).
 
 All three paths share one Nginx `location` block and one rate-limit zone, which simplifies mTLS enforcement and throttling.
 
@@ -381,14 +381,15 @@ The `L.` field in the OTA metadata response (§3.2 Phase 1) is served directly f
 
 ## 5. Nginx Configuration Checklist
 
-**Two listeners, two trust stores (Q-S9).** Devices and admin browsers terminate TLS on **separate `server{}` blocks** — one anchored to the private CA (devices, mTLS required), the other to a public CA (admin, browser-trusted). The device listener is bound to `api.iot.example.com` and the admin listener to `admin.iot.example.com`; both listen on 443 and are selected by SNI. Separating them eliminates any risk of provisioning the wrong trust anchor into the A7670E modem (see §2.3) and keeps the admin path free of client-cert prompts.
+**Two listeners, two trust stores (Q-S9).** Devices and admin browsers terminate TLS on **separate `server{}` blocks** — one anchored to the private CA (devices, mTLS required), the other to a public CA (admin, browser-trusted). The device listener is bound to `robin-gpu.cpe.ku.ac.th` and the admin listener to `adm.robinlab.cc`; both listen on 443 and are selected by SNI. Separating them eliminates any risk of provisioning the wrong trust anchor into the A7670E modem (see §2.3) and keeps the admin path free of client-cert prompts.
 
 **Rate-limit key (Q-S3).** All device traffic (ingest + OTA) carries `?id=<rrrsss>` once Phase 3.1 firmware ships. The device listener therefore keys `limit_req` on `$arg_id` — a true per-device throttle — instead of `$ssl_client_s_dn`, which resolves to a single fleet-wide value because the whole fleet shares one client certificate (§2.1).
 
 ```nginx
 # /etc/nginx/conf.d/iot_server.conf
-# limit_req_zone must be in the http context (e.g. /etc/nginx/nginx.conf or a separate http-level include):
-# limit_req_zone $arg_id zone=device_api:10m rate=10r/s;
+# conf.d/ files are included inside the http{} block of nginx.conf, so
+# limit_req_zone is valid here (at the top level of this file, outside any server{} block).
+limit_req_zone $arg_id zone=device_api:10m rate=10r/s;
 
 upstream fastapi_backend {
     server 127.0.0.1:8000;
@@ -400,13 +401,14 @@ upstream fastapi_backend {
 # /api/v1/weather/ (Q-S1 Option B): ingest, OTA metadata poll, OTA chunk download.
 #
 server {
-    listen 443 ssl http2;
-    server_name api.iot.example.com;
+    listen 443 ssl;
+    http2 on;
+    server_name robin-gpu.cpe.ku.ac.th;
 
     # Server certificate — signed by the private intermediate CA and trusted by
     # the A7670E modem via the single CA cert injected at commissioning (see §2.3).
-    ssl_certificate /etc/ssl/certs/api.iot.example.com.crt;
-    ssl_certificate_key /etc/ssl/private/api.iot.example.com.key;
+    ssl_certificate /etc/ssl/certs/robin-gpu.cpe.ku.ac.th.crt;
+    ssl_certificate_key /etc/ssl/private/robin-gpu.cpe.ku.ac.th.key;
 
     # Private CA chain for device client cert validation.
     # Replace {html_dir} with the absolute path to the html/ deployment directory.
@@ -443,11 +445,12 @@ server {
 # Admin listener — public CA (Let's Encrypt), no client cert. Browsers only.
 #
 server {
-    listen 443 ssl http2;
-    server_name admin.iot.example.com;
+    listen 443 ssl;
+    http2 on;
+    server_name adm.robinlab.cc;
 
-    ssl_certificate     /etc/letsencrypt/live/admin.iot.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/admin.iot.example.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/adm.robinlab.cc/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/adm.robinlab.cc/privkey.pem;
 
     ssl_verify_client off;                   # admin has no client cert
     ssl_protocols     TLSv1.3 TLSv1.2;

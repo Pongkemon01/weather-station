@@ -25,6 +25,7 @@
 #include "nv_database.h"
 #include "ota_control_block.h"
 #include "ota_image_writer.h"
+#include "ota_version_parser.h"
 #include "sha256.h"
 #include "watchdog_task.h"
 #include "datetime.h"
@@ -32,7 +33,6 @@
 
 #include <string.h>
 #include <stdio.h>
-#include <stdlib.h>
 
 #ifndef FW_VERSION
 #define FW_VERSION 0u
@@ -59,76 +59,6 @@ static OtaControlBlock_t s_ocb;
 
 /* 128 zero bytes in Flash — used to clear the FRAM staging bitmap. */
 static const uint8_t     k_zeros[OIW_BITMAP_BYTES];
-
-/* ── Private helpers ─────────────────────────────────────────────────────── */
-
-static uint8_t hex_nibble(char c)
-{
-    if (c >= '0' && c <= '9') return (uint8_t)(c - '0');
-    if (c >= 'a' && c <= 'f') return (uint8_t)(c - 'a' + 10u);
-    return 0xFFu;
-}
-
-/**
- * @brief Scan buf[0..len-1] for `V.<uint32>:L.<uint32>:H.<64hex>[:W.<uint32>]`.
- *
- * Fills *version, *img_size, sha256_out[32], and *wait_seconds on success.
- * The `:W.<seconds>` suffix is optional — responses from pre-rollout servers
- * omit it and the parser returns `wait_seconds = 0` (download permitted).
- * Returns true on the first valid match; false if no valid token is found.
- */
-static bool parse_version_response(const uint8_t *buf, uint16_t len,
-                                   uint32_t *version, uint32_t *img_size,
-                                   uint8_t sha256_out[32],
-                                   uint32_t *wait_seconds)
-{
-    const char *p   = (const char *)buf;
-    const char *end = p + len;
-
-    for (; p + 3 < end; p++) {
-        if (p[0] != 'V' || p[1] != '.') continue;
-
-        char *q;
-        unsigned long v = strtoul(p + 2, &q, 10);
-        if (q == p + 2 || q + 3 > end ||
-            q[0] != ':' || q[1] != 'L' || q[2] != '.') continue;
-
-        unsigned long l = strtoul(q + 3, &q, 10);
-        if (q + 3 > end ||
-            q[0] != ':' || q[1] != 'H' || q[2] != '.') continue;
-
-        const char *h = q + 3;
-        if (h + 64 > end) return false;
-
-        bool hex_ok = true;
-        for (uint8_t i = 0u; i < 32u; i++) {
-            uint8_t hi = hex_nibble(h[2u * i]);
-            uint8_t lo = hex_nibble(h[2u * i + 1u]);
-            if (hi > 15u || lo > 15u) { hex_ok = false; break; }
-            sha256_out[i] = (uint8_t)((hi << 4u) | lo);
-        }
-        if (!hex_ok) continue;
-
-        /* Optional `:W.<seconds>` suffix. Missing or malformed → treat as W.0
-         * so pre-rollout servers remain compatible. */
-        unsigned long w = 0u;
-        const char *after_hash = h + 64;
-        if (after_hash + 3 <= end &&
-            after_hash[0] == ':' && after_hash[1] == 'W' && after_hash[2] == '.') {
-            char *wend;
-            unsigned long parsed = strtoul(after_hash + 3, &wend, 10);
-            if (wend != after_hash + 3) {
-                w = parsed;
-            }
-        }
-
-        *version      = (uint32_t)v;
-        *img_size     = (uint32_t)l;
-        *wait_seconds = (uint32_t)w;
-        return true;
-    }
-    return false;
-}
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
@@ -217,13 +147,13 @@ void ota_manager_task(void *params)
             uint32_t srv_version  = 0u;
             uint32_t img_size     = 0u;
             uint32_t wait_seconds = 0u;
-            if (!parse_version_response(s_io_buf, received,
-                                        &srv_version, &img_size,
-                                        s_ocb.image_sha256,
-                                        &wait_seconds)      ||
+            if (!ovp_parse(s_io_buf, received,
+                           &srv_version, &img_size,
+                           s_ocb.image_sha256,
+                           &wait_seconds)               ||
                 srv_version <= (uint32_t)FW_VERSION          ||
                 img_size    == 0u                            ||
-                img_size    >  OIW_MAX_IMAGE_SIZE) {
+                img_size    >  FLASH_APP_SIZE_MAX) {
                 s_state = OTA_STATE_IDLE;
                 break;
             }

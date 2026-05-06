@@ -1,0 +1,30 @@
+# This file is managed by OpenPackage. Do not edit manually.
+
+packages:
+  weather-station:
+    files:
+      skills/context-audit/SKILL.md:
+        - hash: 150db6b7a6fc09b0
+          sourceHash: f8ddba5ec50f7bb8
+          target: .opencode/skills/context-audit/SKILL.md
+      skills/debug-issue.md:
+        - hash: 9ef48173560e192e
+          sourceHash: 2a638d05e5e7d5f6
+          target: .opencode/skills/debug-issue.md
+      skills/explore-codebase.md:
+        - hash: 293f4d4f55a45f45
+          sourceHash: 028430aca08227b6
+          target: .opencode/skills/explore-codebase.md
+      skills/refactor-safely.md:
+        - hash: 2f6c2079bc78b6ff
+          sourceHash: 6772d656351e8756
+          target: .opencode/skills/refactor-safely.md
+      skills/review-changes.md:
+        - hash: ce04ad4e0cd54941
+          sourceHash: 78e7e6e03cdd17e2
+          target: .opencode/skills/review-changes.md
+    installScope: full
+    path: ./.openpackage
+    platforms:
+      - opencode
+    version: 0.0.0

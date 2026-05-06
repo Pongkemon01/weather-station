@@ -111,4 +111,15 @@
 #define FRAM_STAGING_BITMAP_SIZE \
     (FRAM_STAGING_CRC - FRAM_STAGING_BITMAP)     /* 1 KB */
 
+/* ── Application Flash partition limit ──────────────────────────────────── */
+
+/**
+ * Maximum application firmware size that can be programmed into Flash.
+ * Derived from ldscript_app.ld: FLASH origin 0x08008000, length 480 KB.
+ * See OTA_Firmware_Architecture.md §6.
+ * Any staged image exceeding this value cannot fit in the application partition
+ * and must be rejected before download begins (app) or Flash write begins (bootloader).
+ */
+#define FLASH_APP_SIZE_MAX  (480u * 1024u)
+
 #endif /* FRAM_ADDRESSES_H */
