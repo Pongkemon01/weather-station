@@ -2,7 +2,7 @@
 
 > Phased plan for building the IoT data server specified in `Server_Architecture.md`.
 > Source tree lives in `html/`. Production host: `akp@robin-gpu.cpe.ku.ac.th` (Ubuntu).
-> Deploy via SSH (`ssh akp@robin-gpu.cpe.ku.ac.th`) + `git pull` + `systemctl restart` until Phase 5 introduces CI/CD.
+> Deploy via `bash html/scripts/deploy.sh` (scp + extract + `systemctl restart`; server has no git repo). SSH key: `~/.ssh/akrapong.key`.
 >
 > Implement phases **strictly in order**. Each phase must pass all listed verifications before the next begins.
 > **Architecture reference:** `Server_Architecture.md` (sections cited as §X).

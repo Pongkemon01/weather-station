@@ -114,6 +114,26 @@ Implement phases **strictly in order**. Each phase must pass all listed tests be
 
 ---
 
+## Server Phases (see `Server_Implementation_Plan.md` for full detail)
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| S1 | FastAPI scaffold, gunicorn, systemd | ✓ complete (2026-04-26) |
+| S2 | DB schema, migrations, asyncpg pool | ✓ complete (2026-04-26) |
+| S3 | mTLS ingestion (`/api/v1/weather/upload`) | ✓ complete (2026-04-26) |
+| S4 | Nginx mTLS termination, PKI, CRL, Let's Encrypt | ✓ complete (2026-05-06) |
+| S5 | OTA device endpoints (`/`, `/get_firmware`) | ✓ complete (2026-05-06) |
+| S6 | Admin JWT auth & RBAC | ✓ complete (2026-05-06) |
+| S7 | Admin OTA campaign management REST API | S7-1..S7-5 ✓; **S7-6** integration tests pending |
+| S8 | Admin UI (HTMX + Jinja2) | S8-1..S8-3 ✓; **S8-4** browser e2e test pending — deployed 2026-05-07 |
+| S9 | Observability (Prometheus, Loki, Grafana) | not started |
+| S10 | CI/CD & hardening (optional) | not started |
+
+> **Deploy:** `bash html/scripts/deploy.sh` (scp-based; server has no git repo).
+> **Host:** `akp@robin-gpu.cpe.ku.ac.th` · key `~/.ssh/akrapong.key`
+
+---
+
 ## Phase 4 — Integration & Field Testing
 
 - [ ] P4-1 End-to-end: upload → version check → download → OTA → confirm ✓
