@@ -1,0 +1,45 @@
+<table>
+  <thead>
+    <tr>
+      <th>Region</th>
+      <th>Station</th>
+      <th>Device ID</th>
+      <th>Last Seen (UTC)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in devices %}
+    <tr>
+      <td>{{ d.region_id }}</td>
+      <td>{{ d.station_id }}</td>
+      <td><code>{{ "%03d%03d" % (d.region_id, d.station_id) }}</code></td>
+      <td>{{ d.last_seen.strftime('%Y-%m-%d %H:%M') if d.last_seen else '—' }}</td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="4" style="text-align:center;padding:2rem;color:#888">No devices registered yet.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a hx-get="/admin/devices/table?page={{ page - 1 }}"
+     hx-target="#device-table" hx-swap="innerHTML" href="#">&laquo;</a>
+  {% endif %}
+  {% for p in range(1, total_pages + 1) %}
+    {% if p == page %}
+    <span class="current">{{ p }}</span>
+    {% else %}
+    <a hx-get="/admin/devices/table?page={{ p }}"
+       hx-target="#device-table" hx-swap="innerHTML" href="#">{{ p }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if page < total_pages %}
+  <a hx-get="/admin/devices/table?page={{ page + 1 }}"
+     hx-target="#device-table" hx-swap="innerHTML" href="#">&raquo;</a>
+  {% endif %}
+  <span style="color:#888;font-size:.8rem;margin-left:.5rem">Page {{ page }} of {{ total_pages }}</span>
+</div>
+{% endif %}

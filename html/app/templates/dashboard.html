@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Devices — IoT Admin{% endblock %}
+{% block content %}
+<h1>Registered Devices</h1>
+<div id="device-table"
+     hx-get="/admin/devices/table?page=1"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+  <div style="padding:2rem;text-align:center;color:#888">
+    <span class="spinner"></span> Loading…
+  </div>
+</div>
+{% endblock %}

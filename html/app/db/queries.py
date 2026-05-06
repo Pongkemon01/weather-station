@@ -262,3 +262,26 @@ async def count_eligible_devices(
             target_cohort_ids,
         )
     return row["cnt"] or 0
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: admin UI helpers
+# ---------------------------------------------------------------------------
+
+async def list_devices(conn: asyncpg.Connection, limit: int = 20, offset: int = 0):
+    """Return paginated device rows ordered by (region_id, station_id)."""
+    return await conn.fetch(
+        "SELECT region_id, station_id, last_seen FROM devices ORDER BY region_id, station_id LIMIT $1 OFFSET $2",
+        limit, offset,
+    )
+
+
+async def count_devices(conn: asyncpg.Connection) -> int:
+    """Return total number of registered devices."""
+    row = await conn.fetchrow("SELECT COUNT(*) AS cnt FROM devices")
+    return row["cnt"] or 0
+
+
+async def list_all_campaigns(conn: asyncpg.Connection):
+    """Return all OTA campaigns ordered by version DESC."""
+    return await conn.fetch("SELECT * FROM ota_campaigns ORDER BY version DESC")

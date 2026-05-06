@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}IoT Admin{% endblock %}</title>
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; font-size: 14px; background: #f4f6f9; color: #222; }
+    nav { background: #1a1a2e; color: #fff; padding: .6rem 1.5rem; display: flex; align-items: center; gap: 1.5rem; }
+    nav .brand { font-weight: 700; font-size: .95rem; color: #fff; }
+    nav a { color: #bbb; text-decoration: none; font-size: .88rem; }
+    nav a:hover { color: #fff; }
+    nav .spacer { flex: 1; }
+    nav .user-info { font-size: .8rem; color: #aaa; }
+    main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 1.3rem; font-weight: 600; margin-bottom: 1rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 .6rem; }
+    .card { background: #fff; border-radius: 6px; padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 1.25rem; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    th, td { padding: .45rem .75rem; text-align: left; border-bottom: 1px solid #eee; }
+    th { background: #f0f2f5; font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #555; }
+    tr:last-child td { border-bottom: none; }
+    code { font-family: monospace; font-size: .85em; background: #f0f2f5; padding: .1em .3em; border-radius: 3px; }
+    .btn { display: inline-block; padding: .3rem .8rem; border: none; border-radius: 4px; cursor: pointer; font-size: .82rem; font-weight: 500; text-decoration: none; line-height: 1.4; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-success { background: #16a34a; color: #fff; }
+    .btn-success:hover { background: #15803d; }
+    .btn-warning { background: #d97706; color: #fff; }
+    .btn-warning:hover { background: #b45309; }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-ghost { background: transparent; color: #888; border: 1px solid #ccc; }
+    .btn-ghost:hover { background: #f0f0f0; }
+    .btn-sm { padding: .18rem .55rem; font-size: .78rem; }
+    .badge { display: inline-block; padding: .12rem .45rem; border-radius: 3px; font-size: .75rem; font-weight: 600; }
+    .badge-draft { background: #e5e7eb; color: #555; }
+    .badge-in_progress { background: #dcfce7; color: #15803d; }
+    .badge-paused { background: #fef9c3; color: #854d0e; }
+    .badge-completed { background: #dbeafe; color: #1e40af; }
+    .badge-cancelled { background: #fee2e2; color: #991b1b; }
+    .badge-scheduled { background: #ede9fe; color: #5b21b6; }
+    .alert { padding: .6rem .9rem; border-radius: 4px; margin-bottom: .75rem; font-size: .88rem; }
+    .alert-error { background: #fee2e2; color: #991b1b; }
+    .alert-success { background: #dcfce7; color: #15803d; }
+    .form-group { margin-bottom: .65rem; }
+    .form-group label { display: block; font-weight: 600; margin-bottom: .25rem; font-size: .82rem; color: #444; }
+    .form-group input { width: 100%; padding: .38rem .6rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: .9rem; }
+    .form-group input:focus { outline: 2px solid #2563eb; border-color: transparent; }
+    .pagination { display: flex; gap: .35rem; align-items: center; padding: .6rem .75rem; }
+    .pagination a, .pagination span { padding: .25rem .6rem; border: 1px solid #d1d5db; border-radius: 3px; font-size: .82rem; cursor: pointer; text-decoration: none; color: #333; }
+    .pagination a:hover { background: #f0f2f5; }
+    .pagination .current { background: #2563eb; color: #fff; border-color: #2563eb; }
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc; border-top-color: #444; border-radius: 50%; animation: spin .5s linear infinite; vertical-align: middle; }
+  </style>
+</head>
+<body hx-headers='{"X-CSRF-Token": "{{ csrf_token | default("") }}"}'>
+  {% if user %}
+  <nav>
+    <span class="brand">IoT Admin</span>
+    <a href="/admin/dashboard">Devices</a>
+    <a href="/admin/campaigns">Campaigns</a>
+    <span class="spacer"></span>
+    <span class="user-info">{{ user.sub }} &middot; {{ user.role }}</span>
+    <form method="post" action="/admin/logout" style="margin:0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token | default('') }}">
+      <button type="submit" class="btn btn-ghost" style="padding:.2rem .55rem;font-size:.78rem">Logout</button>
+    </form>
+  </nav>
+  {% endif %}
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

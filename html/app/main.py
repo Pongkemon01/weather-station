@@ -6,7 +6,7 @@ from fastapi import FastAPI
 
 from app.config import settings
 from app.db import pool
-from app.routers import admin, ota, weather
+from app.routers import admin, ota, ui, weather
 
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ app = FastAPI(title="IoT Weather Station Server", lifespan=lifespan)
 app.include_router(weather.router)
 app.include_router(ota.router)
 app.include_router(admin.router)
+app.include_router(ui.router)
 
 
 @app.get("/health")

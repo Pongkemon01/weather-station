@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Campaigns — IoT Admin{% endblock %}
+{% block content %}
+<h1>OTA Campaigns</h1>
+
+{% if user.role == 'admin' %}
+<div class="card">
+  <h2 style="margin-top:0">Upload Firmware Binary</h2>
+  <p style="font-size:.85rem;color:#666;margin-bottom:.75rem">
+    Version auto-assigned: will be <strong>v{{ next_version }}</strong>
+  </p>
+  <form id="upload-form"
+        hx-post="/admin/firmware/upload-ui"
+        hx-target="#upload-result"
+        hx-swap="innerHTML"
+        hx-encoding="multipart/form-data"
+        hx-indicator="#upload-spinner">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-group">
+      <label>Binary file (.bin, max 480 KB)</label>
+      <input type="file" name="file" accept=".bin" required>
+    </div>
+    <button type="submit" class="btn btn-primary">
+      <span id="upload-spinner" class="htmx-indicator spinner"></span>
+      Upload
+    </button>
+  </form>
+  <div id="upload-result" style="margin-top:.75rem"></div>
+</div>
+{% endif %}
+
+<h2>Campaign List</h2>
+<div id="campaign-list"
+     hx-get="/admin/campaigns/list"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+  <div style="padding:2rem;text-align:center;color:#888">
+    <span class="spinner"></span> Loading…
+  </div>
+</div>
+{% endblock %}

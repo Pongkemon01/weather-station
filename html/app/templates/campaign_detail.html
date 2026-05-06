@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Campaign v{{ campaign.version }} — IoT Admin{% endblock %}
+{% block content %}
+<h1>
+  Campaign #{{ campaign.id }} — v{{ campaign.version }}
+  <span class="badge badge-{{ campaign.status }}" style="font-size:.9rem;margin-left:.5rem">
+    {{ campaign.status | replace("_", " ") }}
+  </span>
+</h1>
+
+<a href="/admin/campaigns" class="btn btn-ghost btn-sm" style="margin-bottom:1rem">&larr; Back to Campaigns</a>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
+  <div class="card">
+    <h2 style="margin-top:0">Firmware</h2>
+    <table style="box-shadow:none">
+      <tr><th>Version</th><td>v{{ campaign.version }}</td></tr>
+      <tr><th>Size</th><td>{{ "%.1f" % (campaign.firmware_size / 1024) }} KB</td></tr>
+      <tr><th>SHA-256</th><td><code style="font-size:.75rem;word-break:break-all">{{ campaign.firmware_sha256 }}</code></td></tr>
+      <tr><th>Slot length</th><td>{{ campaign.slot_len_sec }}s ({{ campaign.slot_len_sec // 3600 }}h)</td></tr>
+      {% if campaign.rollout_window_days %}
+      <tr><th>Rollout window</th><td>{{ campaign.rollout_window_days }} days</td></tr>
+      {% endif %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Live Progress</h2>
+    <div id="campaign-progress"
+         hx-get="/admin/campaign/{{ campaign_id }}/progress"
+         hx-trigger="load, every 15s"
+         hx-swap="innerHTML">
+      <span class="spinner"></span> Loading…
+    </div>
+  </div>
+</div>
+
+{% if campaign.status in ('in_progress', 'paused', 'draft') %}
+<div class="card">
+  <h2 style="margin-top:0">Actions</h2>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+    {% if campaign.status == 'in_progress' %}
+    <button class="btn btn-warning"
+            hx-post="/admin/campaign/{{ campaign_id }}/pause-ui"
+            hx-target="#campaign-status-msg"
+            hx-swap="innerHTML">Pause</button>
+    {% elif campaign.status == 'paused' %}
+    <button class="btn btn-success"
+            hx-post="/admin/campaign/{{ campaign_id }}/resume-ui"
+            hx-target="#campaign-status-msg"
+            hx-swap="innerHTML">Resume</button>
+    {% endif %}
+    <button class="btn btn-danger"
+            hx-post="/admin/campaign/{{ campaign_id }}/cancel-ui"
+            hx-target="#campaign-status-msg"
+            hx-swap="innerHTML"
+            hx-confirm="Cancel this campaign? This is irreversible.">Cancel</button>
+  </div>
+  <div id="campaign-status-msg" style="margin-top:.75rem"></div>
+</div>
+{% endif %}
+
+{% if campaign.target_cohort_ids %}
+<div class="card">
+  <h2 style="margin-top:0">Target Cohort ({{ campaign.target_cohort_ids | length }} devices)</h2>
+  <p style="font-size:.85rem;color:#555">{{ campaign.target_cohort_ids | join(', ') }}</p>
+</div>
+{% endif %}
+{% endblock %}

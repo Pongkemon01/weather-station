@@ -1,0 +1,81 @@
+{% if error is defined and error %}
+<div class="alert alert-error" style="margin-bottom:.75rem">{{ error }}</div>
+{% endif %}
+{% if campaigns %}
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Version</th>
+      <th>Size</th>
+      <th>Status</th>
+      <th>Rollout</th>
+      <th>SHA-256</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in campaigns %}
+    <tr id="campaign-row-{{ c.id }}">
+      <td>{{ c.id }}</td>
+      <td><strong>v{{ c.version }}</strong></td>
+      <td>{{ "%.1f" % (c.firmware_size / 1024) }} KB</td>
+      <td><span class="badge badge-{{ c.status }}">{{ c.status | replace("_", " ") }}</span></td>
+      <td style="font-size:.82rem">
+        {% if c.rollout_start %}
+          {{ c.rollout_window_days }}d window<br>
+          <span style="color:#888">{{ c.rollout_start.strftime('%Y-%m-%d') }}</span>
+        {% else %}—{% endif %}
+      </td>
+      <td><code style="font-size:.75rem">{{ c.firmware_sha256[:16] }}…</code></td>
+      <td style="white-space:nowrap">
+        {% if c.status == 'draft' %}
+          {# Inline start form so rollout_window_days can be sent as form data #}
+          <form hx-post="/admin/campaign/{{ c.id }}/start-ui"
+                hx-target="#campaign-list"
+                hx-swap="innerHTML"
+                style="display:inline">
+            <input type="number" name="rollout_window_days" value="10" min="1" max="30"
+                   style="width:48px;padding:.15rem .3rem;border:1px solid #d1d5db;border-radius:3px;font-size:.8rem">d
+            <button type="submit" class="btn btn-success btn-sm">Start</button>
+          </form>
+          <button class="btn btn-danger btn-sm"
+                  hx-post="/admin/campaign/{{ c.id }}/cancel-ui"
+                  hx-target="#campaign-list"
+                  hx-swap="innerHTML"
+                  hx-confirm="Cancel campaign v{{ c.version }}?">Cancel</button>
+        {% elif c.status == 'in_progress' %}
+          <a href="/admin/campaign/{{ c.id }}/detail" class="btn btn-primary btn-sm">Detail</a>
+          <button class="btn btn-warning btn-sm"
+                  hx-post="/admin/campaign/{{ c.id }}/pause-ui"
+                  hx-target="#campaign-list"
+                  hx-swap="innerHTML">Pause</button>
+          <button class="btn btn-danger btn-sm"
+                  hx-post="/admin/campaign/{{ c.id }}/cancel-ui"
+                  hx-target="#campaign-list"
+                  hx-swap="innerHTML"
+                  hx-confirm="Cancel in-progress campaign v{{ c.version }}?">Cancel</button>
+        {% elif c.status == 'paused' %}
+          <a href="/admin/campaign/{{ c.id }}/detail" class="btn btn-primary btn-sm">Detail</a>
+          <button class="btn btn-success btn-sm"
+                  hx-post="/admin/campaign/{{ c.id }}/resume-ui"
+                  hx-target="#campaign-list"
+                  hx-swap="innerHTML">Resume</button>
+          <button class="btn btn-danger btn-sm"
+                  hx-post="/admin/campaign/{{ c.id }}/cancel-ui"
+                  hx-target="#campaign-list"
+                  hx-swap="innerHTML"
+                  hx-confirm="Cancel paused campaign v{{ c.version }}?">Cancel</button>
+        {% else %}
+          <a href="/admin/campaign/{{ c.id }}/detail" class="btn btn-ghost btn-sm">Detail</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card" style="text-align:center;color:#888;padding:2rem">
+  No campaigns yet. Upload a firmware binary above to create one.
+</div>
+{% endif %}
