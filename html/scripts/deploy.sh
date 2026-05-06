@@ -1,19 +1,37 @@
 #!/usr/bin/env bash
-# Deploy: git pull → pip sync → systemctl restart
-# Run from any directory; script locates html/ and repo root automatically.
+# Deploy html/app + requirements.txt to akp@robin-gpu.cpe.ku.ac.th via scp.
+# Usage: bash html/scripts/deploy.sh [ssh_key]
+# Default key: ~/.ssh/akrapong.key
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HTML_DIR="$(dirname "$SCRIPT_DIR")"       # html/
-GIT_ROOT="$(git -C "$HTML_DIR" rev-parse --show-toplevel)"
+HTML_DIR="$(dirname "$SCRIPT_DIR")"
+SSH_KEY="${1:-$HOME/.ssh/akrapong.key}"
+REMOTE="akp@robin-gpu.cpe.ku.ac.th"
+TMP="/tmp/iot_deploy_$$.tar.gz"
 
-echo "==> git pull ($GIT_ROOT)"
-git -C "$GIT_ROOT" pull
+echo "==> Creating archive from $HTML_DIR"
+tar czf "$TMP" \
+    --exclude='app/__pycache__' \
+    --exclude='app/**/__pycache__' \
+    --exclude='*.pyc' \
+    -C "$(dirname "$HTML_DIR")" \
+    "$(basename "$HTML_DIR")/app" \
+    "$(basename "$HTML_DIR")/requirements.txt"
 
-echo "==> pip install ($HTML_DIR)"
-"$HTML_DIR/.venv/bin/pip" install -r "$HTML_DIR/requirements.txt"
+echo "==> Uploading to $REMOTE"
+scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$TMP" "$REMOTE":~/iot_deploy.tar.gz
+rm -f "$TMP"
 
-echo "==> systemctl restart iot-server"
+echo "==> Extracting and restarting"
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$REMOTE" bash <<'EOF'
+cd ~
+tar xzf iot_deploy.tar.gz
+rm iot_deploy.tar.gz
+~/html/.venv/bin/pip install -r ~/html/requirements.txt -q
 sudo systemctl restart iot-server
+sleep 2
+sudo systemctl is-active iot-server
+EOF
 
 echo "==> Deploy complete."

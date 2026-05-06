@@ -331,7 +331,7 @@ Minimum viable operator surface.
 - [x] S8-1 Login page (`/admin/login.html`); CSRF token on form POST — **2026-05-07: `app/routers/ui.py` GET+POST; `app/auth/csrf.py` HMAC-signed double-submit; cookie-based JWT auth (`access_token`, HttpOnly, SameSite=strict); `templates/login.html`** ✓
 - [x] S8-2 Dashboard: device list with `(region_id, station_id)` and `last_seen`; server-rendered table with HTMX `hx-get` pagination — **2026-05-07: `GET /admin/dashboard` → `templates/dashboard.html`; `GET /admin/devices/table?page=N` → `partials/device_table.html`; 20 rows/page; `list_devices`/`count_devices` added to `db/queries.py`** ✓
 - [x] S8-3 Campaign form: file-only upload (no version field — version shown as "will be assigned automatically: v{max+1}"); progress via HTMX `hx-post` + polling; display assigned version and SHA-256 after upload completes; campaign list with start/pause/cancel buttons — **2026-05-07: `GET /admin/campaigns` + `GET /admin/campaigns/list` + `POST /admin/firmware/upload-ui` + start/pause/resume/cancel-ui endpoints; campaign detail page with 15s polling progress; `list_all_campaigns` added to `db/queries.py`; `app/templating.py` Jinja2 singleton; `ui.router` mounted in `main.py`** ✓
-- [ ] S8-4 Verification: end-to-end manual test from a browser — log in, upload firmware, start rollout, observe download-completion progress — **pending deploy + browser test**
+- [ ] S8-4 Verification: end-to-end manual test from a browser — log in, upload firmware, start rollout, observe download-completion progress — **deployed 2026-05-07 via scp (server has no git repo; deploy.sh updated to scp+extract); service active on robin-gpu; browser test pending**
 
 ---
 
