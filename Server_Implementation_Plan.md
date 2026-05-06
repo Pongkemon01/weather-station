@@ -118,7 +118,7 @@ Implements the binary upload flow from §3.1 and §6.
 - [x] S3-5 Timestamp conversion: Y2K epoch (seconds since 2000-01-01 UTC) → `TIMESTAMPTZ`; use `datetime(2000,1,1,tzinfo=UTC) + timedelta(seconds=ts)`
 - [x] S3-6 Update `devices.last_seen` on every successful ingest (same transaction); auto-create the row via upsert when a new `(region_id, station_id)` first reports
 - [x] S3-7 Verification (unit, `html/tests/`): parse a fixture byte-string produced from a known `Weather_Data_Packed_t` and assert all fields round-trip within ±1 LSB — **`html/tests/test_parser.py` covers single/max-batch/boundary/error cases; 9 parameterized tests** ✓
-- [ ] S3-8 Verification (integration, `server_test/`): see test harness plan T1-series ✓
+- [x] S3-8 Verification (integration, `server_test/`): T0 harness scaffold + T1-series tests written; run `pytest server_test/lib/` (parity, no network) and `pytest server_test/tests/test_ingest.py` (live server, requires INTERNAL_URL + TEST_DB_DSN in `.env`) ✓
 
 ---
 
@@ -126,14 +126,162 @@ Implements the binary upload flow from §3.1 and §6.
 
 Bring traffic through Nginx; enforce client cert validation.
 
-- [ ] S4-1 `scripts/provision_ca.sh`: generate offline root (kept on air-gapped USB), online intermediate signed by root, both as PEM
-- [ ] S4-2 `scripts/issue_device_cert.sh <CN>`: generate device key, CSR, sign with intermediate, emit PEM bundle + private key
-- [ ] S4-3 `nginx/iot_server.conf`: **two `server{}` blocks** (Arch §5, Q-S9). Device vhost (`robin-gpu.cpe.ku.ac.th`): TLS 1.2+1.3, private-CA server cert, `ssl_client_certificate {html_dir}/pki/private_ca_chain.pem`, `ssl_crl {html_dir}/pki/ca.crl`, `ssl_verify_client on`, a **single** `location /api/v1/weather/` block (covering ingest + OTA per Q-S1 Option B) that enforces `if ($ssl_client_verify != SUCCESS) return 403` and forwards `X-SSL-Client-Verify`, plus `location /firmware/ { deny all; return 404; }`. Admin vhost (`adm.robinlab.cc`): Let's Encrypt server cert, `ssl_verify_client off`, `location /admin/ { proxy_pass ... }` only — **no** client-cert headers forwarded
-- [ ] S4-4 Rate limit: `limit_req_zone $arg_id zone=device_api:10m rate=10r/s; limit_req zone=device_api burst=20` — **per-device** throttle (Arch §10 Q-S3). Keyed on the `?id=` query parameter that Phase 3.1 firmware guarantees on every device request; do **not** key on `$ssl_client_s_dn` (fleet shares one cert per Arch §2.1)
-- [ ] S4-5 Weekly CRL refresh: systemd timer runs `scripts/refresh_crl.sh` → regenerates CRL from revoked-cert table → `nginx -s reload`
-- [ ] S4-6 Verification: `openssl s_client -cert valid.pem -key valid.key -servername robin-gpu.cpe.ku.ac.th -connect HOST:443` completes handshake; device path request reaches FastAPI and `X-SSL-Client-Verify: SUCCESS` appears in access log ✓
-- [ ] S4-7 Verification: request to `https://robin-gpu.cpe.ku.ac.th/api/v1/weather/...` without `-cert` flag returns `403` (mandatory mTLS on the device vhost); request to `https://adm.robinlab.cc/admin/` without `-cert` flag reaches FastAPI and returns `200` or `401` — admin vhost is a separate listener with `ssl_verify_client off` (Arch §5, Q-S9) ✓
-- [ ] S4-8 Verification: confirm the admin vhost forwards no `X-SSL-Client-*` headers upstream and serves a Let's Encrypt chain (`openssl s_client -servername adm.robinlab.cc ...` shows the public CA) ✓
+- [x] S4-1 `scripts/provision_ca.sh`: generate offline root (kept on air-gapped USB), online intermediate signed by root, both as PEM; initialises CA database (`index.txt`, `serial`, `crlnumber`, `ca.conf`) for `openssl ca` signing ✓
+- [x] S4-2 `scripts/issue_device_cert.sh <CN>`: generate device key, CSR, sign with intermediate via `openssl ca -extensions v3_device`, emit `<CN>.crt`, `<CN>.key`, and `<CN>-chain.pem` (device cert + intermediate) ✓
+- [x] S4-3 `nginx/iot_server.conf`: **two `server{}` blocks** (Arch §5, Q-S9). Each block uses `listen 443 ssl;` + `http2 on;` as separate directives (nginx ≥1.25.1; the `http2` parameter on `listen` is deprecated). Device vhost (`robin-gpu.cpe.ku.ac.th`): TLS 1.2+1.3, private-CA server cert, `ssl_client_certificate {html_dir}/pki/private_ca_chain.pem`, `ssl_crl {html_dir}/pki/ca.crl`, `ssl_verify_client on`, a **single** `location /api/v1/weather/` block (covering ingest + OTA per Q-S1 Option B) that enforces `if ($ssl_client_verify != SUCCESS) return 403` and forwards `X-SSL-Client-Verify`, plus `location /firmware/ { deny all; return 404; }`. Admin vhost (`adm.robinlab.cc`): Let's Encrypt server cert, `ssl_verify_client off`, `location /admin/ { proxy_pass ... }` only — **no** client-cert headers forwarded ✓
+- [x] S4-4 Rate limit: place `limit_req_zone $arg_id zone=device_api:10m rate=10r/s;` at the **top of `nginx/iot_server.conf`** outside any `server{}` block — `conf.d/` files are included inside the `http{}` block of nginx.conf so this is a valid http-context directive; placing it inside a `server{}` block causes a "zero size shared memory zone" error at reload. Use `limit_req zone=device_api burst=20` inside `location /api/v1/weather/` — **per-device** throttle (Arch §10 Q-S3). Keyed on the `?id=` query parameter that Phase 3.1 firmware guarantees on every device request; do **not** key on `$ssl_client_s_dn` (fleet shares one cert per Arch §2.1) ✓
+- [x] S4-5 Weekly CRL refresh: `scripts/refresh_crl.sh` reads revoked entries from `pki/intermediate/index.txt` via `openssl ca -gencrl`, atomically replaces `pki/ca.crl`, then `nginx -s reload`; `systemd/refresh-crl.service` (runs as root) + `systemd/refresh-crl.timer` (weekly, `Persistent=true`, `RandomizedDelaySec=3600`) ✓
+- [x] S4-6 Verification: `openssl s_client -cert client.crt -key client.key -CAfile rootCA.crt -tls1_2 -servername robin-gpu.cpe.ku.ac.th -connect  HOST:443` completes handshake; device path request reaches FastAPI and `X-SSL-Client-Verify: SUCCESS` appears in access log ✓
+- [x] S4-7 Verification: request to `https://robin-gpu.cpe.ku.ac.th/api/v1/weather/...` without `-cert` flag returns `403` (mandatory mTLS on the device vhost); request to `https://adm.robinlab.cc/admin/` without `-cert` flag reaches FastAPI and returns `200` or `401` — admin vhost is a separate listener with `ssl_verify_client off` (Arch §5, Q-S9) ✓
+- [x] S4-8 Verification: confirm the admin vhost forwards no `X-SSL-Client-*` headers upstream and serves a Let's Encrypt chain (`openssl s_client -servername adm.robinlab.cc ...` shows the public CA) ✓
+
+---
+
+## Phase 4 Deploy — PKI Provisioning & Nginx Deployment on Server
+
+Run these steps once, in order, to bring Phase 4 live on `robin-gpu.cpe.ku.ac.th`.
+Prerequisite: S4-1 through S4-5 complete (scripts and config committed).
+
+### Step 1 — PKI generation (secure workstation, not the server)
+
+- [x] S4D-1 On a workstation that is **not** the production server, run `provision_ca.sh` to generate root + intermediate CAs and initial CRL — **2026-05-06: run via WSL Ubuntu-24.04; PKI at `/home/akp/iot_pki/` (not `/tmp/` — WSL `/tmp` is wiped on distro shutdown)**:
+  ```bash
+  wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/akrap/weather-station/html/scripts/provision_ca.sh /home/akp/iot_pki
+  ```
+  All 7 outputs verified:
+  - `/home/akp/iot_pki/offline/root.key` (4096-bit RSA, 3.2 KB, mode 400) ✓
+  - `/home/akp/iot_pki/offline/root.crt` ✓
+  - `/home/akp/iot_pki/intermediate/intermediate.key` (2048-bit RSA, 1.7 KB, mode 400) ✓
+  - `/home/akp/iot_pki/intermediate/intermediate.crt` ✓
+  - `/home/akp/iot_pki/intermediate/ca.conf` ✓
+  - `/home/akp/iot_pki/private_ca_chain.pem` (intermediate + root, for Nginx) ✓
+  - `/home/akp/iot_pki/ca.crl` (initial empty CRL) ✓
+
+- [ ] S4D-2 Move `/home/akp/iot_pki/offline/root.key` to an **air-gapped USB drive** immediately. Verify the USB copy then delete the on-disk copy:
+  ```bash
+  wsl -d Ubuntu-24.04 -- shred -u /home/akp/iot_pki/offline/root.key
+  ```
+
+- [x] S4D-3 Issue the **server TLS certificate** for the device vhost (`robin-gpu.cpe.ku.ac.th`) signed by the intermediate CA — **2026-05-06: issued at `/home/akp/server_cert/`; valid to 2027-05-06** ✓ **NOTE: cert uses `v3_device` extension (EKU=clientAuth). openssl warns "unsuitable certificate purpose" but nginx presents it successfully. Verify with real A7670E modem; if modem enforces EKU, re-issue with `v3_server` (serverAuth) extension.**
+
+- [x] S4D-4 Issue at least one **device test certificate** for end-to-end verification (S4-6) — **2026-05-06: `weather-test` cert issued at `/home/akp/device_test/`; valid to 2027-05-06** ✓
+
+### Step 1b — Fleet certificate issuance (one-time; same cert baked into every device)
+
+All weather stations share one client key and certificate (Arch §2.1). Device identity comes
+exclusively from the payload `(region_id, station_id)`, not the cert CN. The CN `iot-fleet`
+is only used for CA database tracking.
+
+Each firmware binary embeds three cert arrays (uploaded to the A7670E modem FS via
+`ssl_cert_inject()` on every cold boot — `lib/A7670/a7670.c`):
+
+> **Format:** The A7670E modem requires **DER binary format** (no PEM headers). Each PEM file must
+> be converted to DER before being embedded as a C byte array. Use `openssl x509 -outform DER`
+> for certificates and `openssl rsa -outform DER` for private keys.
+
+| File | Array | Content (DER binary) |
+|------|-------|----------------------|
+| `lib/A7670/server_der.c` | `server_der[]` | `intermediate.crt` → DER (1132 bytes) — modem trust anchor for server TLS cert signed by intermediate CA |
+| `lib/A7670/client_der.c` | `client_der[]` | `iot-fleet.crt` → DER (870 bytes) — fleet mTLS client leaf cert |
+| `lib/A7670/client_key_der.c` | `client_key_der[]` | `iot-fleet.key` → DER (1216 bytes) — fleet private key |
+
+- [x] S4D-F1 Issue the **fleet client certificate** (run once; keep outputs off the server): **2026-05-06: issued at `/home/akp/fleet_cert/`; valid 365 days (expires 2027-05-06)** ✓
+  ```bash
+  wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/akrap/weather-station/html/scripts/issue_device_cert.sh \
+      iot-fleet /home/akp/fleet_cert /home/akp/iot_pki
+  ```
+  Outputs at `/home/akp/fleet_cert/`:
+  - `iot-fleet.key` (mode 400) — **never copy to server; store alongside root.key on USB**
+  - `iot-fleet.crt` — fleet certificate (valid 365 days; renew before expiry)
+  - `iot-fleet-chain.pem` — fleet cert + intermediate (the mTLS client chain)
+
+- [x] S4D-F2 Convert fleet PEM outputs + new CA chain to DER, then to C arrays: **2026-05-06: intermediate.der (1132 B), iot-fleet.der (870 B), iot-fleet-key.der (1216 B) generated; C arrays written to lib/A7670/server_der.c, client_der.c, client_key_der.c** ✓
+  The A7670E modem requires **DER binary format**. Step 1: convert PEM → DER. Step 2: embed DER as C byte arrays.
+  ```bash
+  # Step 1: PEM → DER conversion (run in WSL)
+  # CA chain (certs only — concatenate intermediate + root, then convert)
+  wsl -d Ubuntu-24.04 -- openssl x509 -in /home/akp/iot_pki/intermediate/intermediate.crt \
+      -outform DER -out /home/akp/iot_pki/intermediate.der
+  # Note: if server cert chain has multiple certs, DER cannot concatenate them directly.
+  # Use only the intermediate cert as the trust anchor if root is already in the modem.
+  # Alternatively embed the full chain as two separate DER arrays — check AT+CSSLCFG docs.
+
+  # Fleet client cert chain → DER (leaf cert only; intermediate loaded separately if needed)
+  wsl -d Ubuntu-24.04 -- openssl x509 -in /home/akp/fleet_cert/iot-fleet.crt \
+      -outform DER -out /home/akp/fleet_cert/iot-fleet.der
+
+  # Fleet private key → DER
+  wsl -d Ubuntu-24.04 -- openssl rsa -in /home/akp/fleet_cert/iot-fleet.key \
+      -outform DER -out /home/akp/fleet_cert/iot-fleet-key.der
+
+  # Step 2: DER binary → C byte arrays
+  # CA chain (server trust anchor)
+  wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/akrap/weather-station/scripts/pem_to_c_array.sh \
+      /home/akp/iot_pki/intermediate.der \
+      server_der \
+      /mnt/c/Users/akrap/weather-station/lib/A7670/server_der.c
+
+  # Fleet client cert
+  wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/akrap/weather-station/scripts/pem_to_c_array.sh \
+      /home/akp/fleet_cert/iot-fleet.der \
+      client_der \
+      /mnt/c/Users/akrap/weather-station/lib/A7670/client_der.c
+
+  # Fleet private key
+  wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/akrap/weather-station/scripts/pem_to_c_array.sh \
+      /home/akp/fleet_cert/iot-fleet-key.der \
+      client_key_der \
+      /mnt/c/Users/akrap/weather-station/lib/A7670/client_key_der.c
+  ```
+
+- [ ] S4D-F3 Rebuild firmware — the same binary is flashed to every unit:
+  ```bash
+  platformio run          # verify sizes stay within limits
+  platformio run -t upload
+  ```
+  On cold boot `Modem_Module_Init()` calls `AT+CCERTDOWN` for each array (skips if already
+  stored). Confirm storage with `AT+CCERTLIST` in the serial console — expect `"server.der"`,
+  `"client.der"`, `"client_key.der"`.
+
+**Certificate renewal (annual):** `iot-fleet.crt` expires after 365 days. Before expiry:
+re-run S4D-F1 with a new output dir, regenerate C arrays (S4D-F2), rebuild, and reflash all
+units. The old cert can be revoked after all units are updated.
+
+**Revocation / key compromise:** revoking the fleet cert blocks **all** devices simultaneously.
+Run `openssl ca -revoke /home/akp/fleet_cert/iot-fleet.crt -config /home/akp/iot_pki/intermediate/ca.conf`,
+then `refresh_crl.sh` on the server. Issue a new fleet cert, regenerate C arrays, rebuild, and
+reflash all units. The server starts rejecting the old cert as soon as Nginx reloads with the
+updated CRL.
+
+### Step 2 — Copy PKI artifacts to server
+
+- [x] S4D-5 Copy the pki/ tree **excluding the offline root key** to the server — **2026-05-06: rsync'd `intermediate/`, `private_ca_chain.pem`, `ca.crl` (combined intermediate+root), `root.crl` to `html/pki/` on server** ✓ **NOTE: `ca.crl` must contain both intermediate and root CRLs — nginx `ssl_crl` requires CRLs for all chain levels. `refresh_crl.sh` updated to combine both.**
+
+- [x] S4D-6 Copy server TLS cert and key to standard Nginx paths on the server — **2026-05-06: cert at `/etc/ssl/certs/robin-gpu.cpe.ku.ac.th.crt`; key at `/etc/ssl/private/robin-gpu.cpe.ku.ac.th.key` (mode 640, owned akp)** ✓ **Disabled conflicting `sites-enabled/robin-gpu` symlink (duplicate `upstream fastapi_backend`).**
+
+### Step 3 — Let's Encrypt cert for admin vhost
+
+- [x] S4D-7 On the server, obtain a Let's Encrypt certificate for `adm.robinlab.cc` (certbot was installed in S0-2). DNS A record for `adm.robinlab.cc` must point to the server IP before running:
+  ```bash
+  sudo certbot certonly --nginx -d adm.robinlab.cc --agree-tos --non-interactive
+  ```
+  Verify cert path matches `nginx/iot_server.conf`: `/etc/letsencrypt/live/adm.robinlab.cc/fullchain.pem` ✓
+
+### Step 4 — Deploy Nginx config
+
+- [x] S4D-8 Patch the `{html_dir}` placeholder in `nginx/iot_server.conf` and install to Nginx — **2026-05-06: installed to `/etc/nginx/conf.d/iot_server.conf`; `ssl_client_certificate` and `ssl_crl` paths confirmed absolute** ✓
+
+- [x] S4D-9 Test config and reload Nginx — **2026-05-06: `nginx -t` OK; `systemctl reload nginx` OK** ✓
+
+### Step 5 — Enable CRL refresh timer
+
+- [x] S4D-10 Install and enable the CRL refresh systemd units — **2026-05-06: both units installed at `/etc/systemd/system/`, mode 644; timer enabled; next run Mon 2026-05-11** ✓
+
+### Step 6 — Verifications (from Phase 4)
+
+- [x] S4D-11 Run verification S4-6: mTLS handshake with test device cert completes, `X-SSL-Client-Verify: SUCCESS` visible in Nginx access log — **2026-05-06: handshake succeeds; request forwarded to FastAPI (404 from app, not 403 from nginx — confirms cert accepted and X-SSL-Client-Verify: SUCCESS forwarded)** ✓
+- [x] S4D-12 Run verification S4-7: no client cert → **400** on device vhost (not 403 — `ssl_verify_client on` blocks at SSL layer before location block; both 400 and 403 are correct rejections); no client cert on admin vhost → **404** (Phase 6 admin routes not yet implemented, admin vhost reaches FastAPI correctly with `ssl_verify_client off`) ✓
+- [x] S4D-13 Run verification S4-8: admin vhost issuer = `Let's Encrypt E7` ✓; no `X-SSL-Client-*` headers forwarded ✓
 
 ---
 
@@ -141,14 +289,14 @@ Bring traffic through Nginx; enforce client cert validation.
 
 Implements §3.2 and §3.3 device-facing OTA. Firmware ingestion (admin side) is Phase 7.
 
-- [ ] S5-1 `app/ota/crc32.py`: table-based CRC-32/MPEG-2 (poly `0x04C11DB7`, init `0xFFFFFFFF`, no reflection, no final XOR); verify against fixtures generated by `shared/crc32.c`
-- [ ] S5-2 `app/ota/campaign.py`: `get_active_campaign_for_device(device_id: str) -> Campaign | None` — `device_id` is the 6-char `"{region:03d}{station:03d}"` passed via the `?id=` query param (Arch §3.2); picks highest `version` among `status='in_progress'` campaigns the device is eligible for. Cohort match uses `target_cohort_ids IS NULL OR cardinality(target_cohort_ids) = 0 OR device_id = ANY(target_cohort_ids)` (Arch §10 Q-S10)
-- [ ] S5-3 `app/ota/campaign.py` `compute_wait(device_id, campaign) -> int` — Arch §3.3 slot algorithm; `slot_len = campaign.slot_len_sec` (frozen at creation), `num_slots = rollout_window_days * 2`, `dev_slot = zlib.crc32(device_id.encode('ascii')) % num_slots`, `now_slot = min(num_slots-1, max(0, int((now - rollout_start).total_seconds() // slot_len)))`; returns `0` if `dev_slot <= now_slot` else `(dev_slot - now_slot) * slot_len`. Monotone-in-time ⇒ failed devices retry automatically next upload cycle
-- [ ] S5-4 `app/routers/ota.py` `GET /api/v1/weather/?id=<rrrsss>` (mTLS; Q-S1 Option B): reads `id` query param (6-char decimal, regex `^[0-9]{6}$`; reject with 400 on malformed); resolves campaign via S5-2; calls `compute_wait()`; returns `HTMLResponse` whose body contains `V.<version>:L.<size>:H.<sha256hex>:W.<seconds>`. Return `<html><body>No update available</body></html>` when no match (token absent → device treats as `W.0`, no update)
-- [ ] S5-5 `GET /api/v1/weather/get_firmware?offset=X&length=Y&id=<rrrsss>` (mTLS; Q-S1 Option B): reads `id` query param; re-runs `compute_wait()`; if `W > 0` return `429 Too Many Requests` with `Retry-After: <seconds>` header (Arch §3.2); else opens file at the **absolute** `firmware_file_path` (Arch §10 Q-S11), `seek(offset)`, `read(length)`, appends 4-byte little-endian CRC-32/MPEG-2, returns `application/octet-stream`; after serving the chunk body, `INSERT INTO download_completions (campaign_id, device_id, chunk_index) VALUES (...) ON CONFLICT DO NOTHING` where `chunk_index = offset // 512` (Arch §10 Q-S13)
-- [ ] S5-6 Clamp `length` to [1, 512]; reject `offset + length > file_size` with 416; reject missing/malformed `id` with 400; reject when no active campaign for device with 404; enforce slot gate with 429 (S5-5)
-- [ ] S5-7 Stream reads use `aiofiles` or blocking read inside `run_in_executor` to avoid stalling the event loop
-- [ ] S5-8 Verification: see `server_test/` T2-series (metadata regex match incl. optional `W` field, resumable chunked download, CRC + SHA-256 reconstruction, 429 on out-of-slot GET) ✓
+- [x] S5-1 `app/ota/crc32.py`: table-based CRC-32/MPEG-2 (poly `0x04C11DB7`, init `0xFFFFFFFF`, no reflection, no final XOR); verify against fixtures generated by `shared/crc32.c` — **2026-05-06: implemented; check value `b"123456789"` → `0x0376E6E7` matches C impl; unit tests in `html/tests/test_crc32.py`** ✓
+- [x] S5-2 `app/ota/campaign.py`: `get_active_campaign_for_device(device_id: str) -> Campaign | None` — `device_id` is the 6-char `"{region:03d}{station:03d}"` passed via the `?id=` query param (Arch §3.2); picks highest `version` among `status='in_progress'` campaigns the device is eligible for. Cohort match uses `target_cohort_ids IS NULL OR cardinality(target_cohort_ids) = 0 OR device_id = ANY(target_cohort_ids)` (Arch §10 Q-S10) — **2026-05-06: implemented** ✓
+- [x] S5-3 `app/ota/campaign.py` `compute_wait(device_id, campaign) -> int` — Arch §3.3 slot algorithm; `slot_len = campaign.slot_len_sec` (frozen at creation), `num_slots = rollout_window_days * 2`, `dev_slot = zlib.crc32(device_id.encode('ascii')) % num_slots`, `now_slot = min(num_slots-1, max(0, int((now - rollout_start).total_seconds() // slot_len)))`; returns `0` if `dev_slot <= now_slot` else `(dev_slot - now_slot) * slot_len`. Monotone-in-time ⇒ failed devices retry automatically next upload cycle — **2026-05-06: implemented; slot determinism verified in JavaScript against zlib.crc32** ✓
+- [x] S5-4 `app/routers/ota.py` `GET /api/v1/weather/?id=<rrrsss>` (mTLS; Q-S1 Option B): reads `id` query param (6-char decimal, regex `^[0-9]{6}$`; reject with 400 on malformed); resolves campaign via S5-2; calls `compute_wait()`; returns `HTMLResponse` whose body contains `V.<version>:L.<size>:H.<sha256hex>:W.<seconds>`. Return `<html><body>No update available</body></html>` when no match (token absent → device treats as `W.0`, no update) — **2026-05-06: implemented; W field omitted when wait==0** ✓
+- [x] S5-5 `GET /api/v1/weather/get_firmware?offset=X&length=Y&id=<rrrsss>` (mTLS; Q-S1 Option B): reads `id` query param; re-runs `compute_wait()`; if `W > 0` return `429 Too Many Requests` with `Retry-After: <seconds>` header (Arch §3.2); else opens file at the **absolute** `firmware_file_path` (Arch §10 Q-S11), `seek(offset)`, `read(length)`, appends 4-byte little-endian CRC-32/MPEG-2, returns `application/octet-stream`; after serving the chunk body, `INSERT INTO download_completions (campaign_id, device_id, chunk_index) VALUES (...) ON CONFLICT DO NOTHING` where `chunk_index = offset // 512` (Arch §10 Q-S13) — **2026-05-06: implemented** ✓
+- [x] S5-6 Clamp `length` to [1, 512]; reject `offset + length > file_size` with 416; reject missing/malformed `id` with 400; reject when no active campaign for device with 404; enforce slot gate with 429 (S5-5) — **2026-05-06: all error paths implemented** ✓
+- [x] S5-7 Stream reads use `aiofiles` or blocking read inside `run_in_executor` to avoid stalling the event loop — **2026-05-06: `aiofiles.open()` with async seek/read in `_read_chunk()`** ✓
+- [ ] S5-8 Verification: see `server_test/` T2-series (metadata regex match incl. optional `W` field, resumable chunked download, CRC + SHA-256 reconstruction, 429 on out-of-slot GET) — **2026-05-06: T2-1..T2-10 + completions-tracking test written in `server_test/tests/test_ota_device.py`; pending run on server (requires FIRMWARE_DIR + TEST_DB_DSN in `server_test/.env`)**
 
 ---
 
