@@ -7,6 +7,8 @@ Environment (.env file, gitignored):
   DEVICE_CERT    Path to device chain PEM (cert + intermediate)
   DEVICE_KEY     Path to device private key
   TEST_DB_DSN    asyncpg DSN for DB assertions (optional)
+  ADMIN_USER     Admin username for integration tests (default: admin)
+  ADMIN_PASS     Admin password for integration tests
 """
 from __future__ import annotations
 
@@ -14,10 +16,12 @@ import os
 from pathlib import Path
 
 import asyncpg
+import httpx
 import pytest
 import pytest_asyncio
 from dotenv import load_dotenv
 
+from lib.admin import AdminClient
 from lib.mock_device import MockDevice
 
 load_dotenv(Path(__file__).parent / ".env", override=False)
@@ -30,6 +34,8 @@ DEVICE_KEY   = os.getenv("DEVICE_KEY", "")
 TEST_DB_DSN  = os.getenv("TEST_DB_DSN", "")
 # Absolute path to the server's firmware/ dir; must be writable from the test runner.
 FIRMWARE_DIR = os.getenv("FIRMWARE_DIR", "")
+ADMIN_USER   = os.getenv("ADMIN_USER", "admin")
+ADMIN_PASS   = os.getenv("ADMIN_PASS", "")
 
 # Region reserved for all integration test devices — never a real station.
 TEST_REGION = 999
@@ -146,3 +152,62 @@ async def db_cleanup(db):
     await _purge_test_rows(db)
     yield db
     await _purge_test_rows(db)
+
+
+# ── Admin HTTP client ─────────────────────────────────────────────────────────
+
+@pytest_asyncio.fixture
+async def admin_client():
+    """Unauthenticated httpx client pointed at INTERNAL_URL (admin endpoints)."""
+    url = _need("INTERNAL_URL", INTERNAL_URL)
+    async with httpx.AsyncClient(base_url=url) as client:
+        yield client
+
+
+@pytest_asyncio.fixture
+async def admin_token(admin_client):
+    """Login as ADMIN_USER/ADMIN_PASS and return the raw JWT string."""
+    _need("ADMIN_PASS", ADMIN_PASS)
+    r = await admin_client.post(
+        "/admin/login",
+        data={"username": ADMIN_USER, "password": ADMIN_PASS},
+    )
+    assert r.status_code == 200, f"Admin login failed: {r.text}"
+    return r.json()["access_token"]
+
+
+@pytest_asyncio.fixture
+async def admin(admin_client, admin_token):
+    """Authenticated AdminClient for Phase 7 campaign tests."""
+    return AdminClient(admin_client, admin_token)
+
+
+# ── Campaign cleanup: remove campaigns created during the test ─────────────────
+
+async def _purge_campaigns_above(conn, pre_max: int) -> None:
+    """Delete ota_campaigns with version > pre_max and their firmware files."""
+    rows = await conn.fetch(
+        "SELECT id, firmware_file_path FROM ota_campaigns WHERE version > $1", pre_max
+    )
+    if not rows:
+        return
+    ids = [r["id"] for r in rows]
+    await conn.execute(
+        "DELETE FROM download_completions WHERE campaign_id = ANY($1::int[])", ids
+    )
+    for r in rows:
+        try:
+            Path(r["firmware_file_path"]).unlink(missing_ok=True)
+        except OSError:
+            pass
+    await conn.execute("DELETE FROM ota_campaigns WHERE id = ANY($1::int[])", ids)
+
+
+@pytest_asyncio.fixture
+async def campaign_cleanup(db):
+    """Capture pre-test max campaign version; delete all test campaigns on teardown."""
+    pre_max = (
+        await db.fetchval("SELECT COALESCE(MAX(version), 0) FROM ota_campaigns") or 0
+    )
+    yield db
+    await _purge_campaigns_above(db, pre_max)

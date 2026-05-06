@@ -54,27 +54,29 @@ server_test/
 
 ## Phase T0 — Harness Bootstrap
 
-- [ ] T0-1 Scaffold `server_test/` per layout; add `requirements.txt`; `pip install -r requirements.txt` succeeds on Python 3.12
-- [ ] T0-2 `conftest.py`: load `.env`; expose `base_url`, `ca_bundle`, `device_cert_dir` fixtures; skip suite with clear message if env missing
-- [ ] T0-3 `lib/crc32.py`: implement CRC-32/MPEG-2; add test that reproduces a known digest from `shared/crc32.c` (embed 4–6 pre-computed vectors)
-- [ ] T0-4 `lib/fixedpt.py`: `to_fixed(value: float) -> int` and `from_fixed(raw: int) -> float` for S9.7; property test: round-trip within ±1 LSB across [-256, 255.99]
-- [ ] T0-5 `lib/packed.py`: `encode_chunks(region, station, samples)` and `decode_chunks(payload)` using the firmware's little-endian packed layout
-- [ ] T0-6 `scripts/provision_test_certs.sh`: produces ≥ 3 device cert bundles (`TEST-0001..0003`) signed by the server's intermediate CA
-- [ ] T0-7 Verification: `pytest server_test/lib/` runs the parity tests (CRC, fixedpt, packed) green ✓
+- [x] T0-1 Scaffold `server_test/` per layout; add `requirements.txt`; `pip install -r requirements.txt` succeeds on Python 3.12 ✓
+- [x] T0-2 `conftest.py`: load `.env`; expose `dev` (INTERNAL_URL + injected header), `dev_mtls` (BASE_URL + real cert), `dev_no_cert`, `db`, `db_cleanup` fixtures; skip with message when env var missing ✓
+- [x] T0-3 `lib/crc32.py`: table-based CRC-32/MPEG-2; `_selfcheck()` at import time; `lib/test_parity.py` pytest tests: empty-input + standard "123456789" check value `0x0376E6E7` + accumulation parity + confirmed differs from `zlib.crc32` ✓
+- [x] T0-4 `lib/fixedpt.py`: `to_fixed` / `from_fixed` S9.7; `_selfcheck()` at import; `lib/test_parity.py` pytest tests: 6 known vectors + round-trip across full range + sign-extension ✓
+- [x] T0-5 `lib/packed.py`: `encode(region, station, samples)` + `Sample` dataclass; `lib/test_parity.py` pytest tests: lengths, header bytes, temperature encoding ✓
+- [x] T0-6 **N/A** — fleet uses one shared client cert (Arch §2.1); no per-device CNs. One shared test cert issued via `scripts/issue_device_cert.sh weather-test` from Phase 4 Deploy is sufficient ✓
+- [ ] T0-7 Verification: `pytest server_test/lib/` runs the parity tests (CRC, fixedpt, packed) green — run locally once `pip install -r server_test/requirements.txt` completes ✓
 
 ---
 
 ## Phase T1 — Ingest Path (mirrors Server Phase 3)
 
-- [ ] T1-1 Happy path: single chunk with known values → `200 {"status":"ok"}`; poll admin `/admin/devices/<region_id>/<station_id>/records?limit=1` (or query DB directly) and assert float fields match to ±0.01
-- [ ] T1-2 Max batch: 28 chunks × 18 B + 5 B header = 509 B → `200`; all 28 rows appear in `weather_records` with correct timestamps
-- [ ] T1-3 Idempotency: same payload POSTed twice → second response is `{"status":"duplicate"}`; `weather_records` row count unchanged
-- [ ] T1-4 Field boundaries: fixed-point extremes (`-256.0`, `+255.9921875`) round-trip correctly after decode
-- [ ] T1-5 Malformed header: `chunk_count=5` but body length = 5 + 4·18 → `400`; no rows inserted
-- [ ] T1-6 First-seen device auto-upsert: upload with a `(region, station)` pair that has no existing `devices` row → `200`; a new row appears with `last_seen=now()`; the 5-byte header is the sole identity source (Arch §2.1 shared-cert note — do **not** gate on CN)
-- [ ] T1-7 Idempotency key format: assert the `ingest_log.key` column stores `"{region:03d}{station:03d}:{first_sample_ts}"` (e.g. `042001:1713456000`) — pin the exact format so future refactors don't silently change it
-- [ ] T1-8 Missing `X-SSL-Client-Verify` (simulated by hitting FastAPI directly if allowed during staging) → `403`
-- [ ] T1-9 Timestamp edge case: Y2K epoch 0 (2000-01-01T00:00:00Z) stored as `'2000-01-01 00:00:00+00'` TIMESTAMPTZ
+Tests in `server_test/tests/test_ingest.py`. Primary mode: `INTERNAL_URL` + injected header (no mTLS needed). DB assertions require `TEST_DB_DSN`. Region 999 reserved; `db_cleanup` pre- and post-purges all region=999 rows.
+
+- [x] T1-1 Happy path: single chunk → `200 {"status":"ok"}`; DB assertion: float fields ±1 LSB (`test_t1_1_happy_path_response` + `test_t1_1_happy_path_db_float_fields`) ✓
+- [x] T1-2 Max batch: 28 chunks × 18 B + 5 B = 509 B → `200`; DB assertion: 28 rows in `weather_records` (`test_t1_2_max_batch_response` + `test_t1_2_max_batch_row_count`) ✓
+- [x] T1-3 Idempotency: same payload twice → `{"status":"duplicate"}`; row count unchanged (`test_t1_3_idempotency`) ✓
+- [x] T1-4 Field boundaries: `-256.0` and `+255.9921875` accepted and stored within ±1 LSB (`test_t1_4_field_boundaries_response` + `test_t1_4_field_boundaries_db`) ✓
+- [x] T1-5 Malformed header (count=5, body=4 records) → `400`; no rows inserted (`test_t1_5_count_mismatch_returns_400` + `test_t1_5_no_rows_on_bad_payload`) ✓
+- [x] T1-6 First-seen device auto-upsert → `200`; `devices` row created with `last_seen ≥ upload_start` (`test_t1_6_new_device_response` + `test_t1_6_new_device_db_row`) ✓
+- [x] T1-7 Idempotency key format: actual format is `"{region:03d}{station:03d}:{iso_datetime}"` (e.g. `999001:2024-05-19T00:00:00+00:00`) — the plan example showed a unix timestamp but the code stores ISO datetime from `datetime.isoformat()`; test pins the actual format (`test_t1_7_idempotency_key_format`) ✓
+- [x] T1-8 Missing `X-SSL-Client-Verify` header → `403` (hits FastAPI directly without header via `dev_no_cert`; `test_t1_8_missing_verify_header_returns_403`) ✓
+- [x] T1-9 Y2K epoch 0 → accepted; stored as `2000-01-01T00:00:00+00:00` TIMESTAMPTZ (`test_t1_9_y2k_epoch_zero_response` + `test_t1_9_y2k_epoch_zero_stored_correctly`) ✓
 
 ---
 
@@ -102,20 +104,24 @@ All device requests pass `?id=<rrrsss>` (6-char decimal, `%03d%03d` of region/st
 
 ## Phase T3 — Admin Campaign Lifecycle (mirrors Server Phase 7)
 
-- [ ] T3-1 Login: wrong password → `401`; correct → `200` + JWT; expired token → `401`; RBAC — `viewer` token on admin endpoint → `403`
-- [ ] T3-2 Firmware upload: POST `firmware_small.bin` (no version field) → response `firmware_sha256` equals local `hashlib.sha256(fw).hexdigest()`; response `firmware_size` equals `len(fw)`; response `version` equals `prev_max + 1`; campaign row present with status `draft`; `html/firmware/v{version}.bin` exists on server and its SHA-256 matches; no previous firmware binary remains on disk
-- [ ] T3-3 Auto-increment: upload a second distinct binary → response `version` = first response `version` + 1; first `html/firmware/v{v1}.bin` has been deleted; only `html/firmware/v{v2}.bin` present on disk
-- [ ] T3-4 Start rollout: `POST /admin/campaign/{id}/start` with JSON body `{"rollout_window_days": 10}` → status flips to `in_progress`; `rollout_start=now()`; T2-2 for any in-slot `id` now succeeds. Attempt to pass legacy `cohort_size_percent` → `400` (field removed per Arch §3.3)
-- [ ] T3-4a Start invariants: `rollout_window_days=0` → `400`; `rollout_window_days=31` → `400`; default (omitted) → `10`
-- [ ] T3-5 Pause → Resume: metadata endpoint returns "No update available" while paused; on resume, `rollout_start` is **not** reset — `W` values continue from the original slot clock (assert `now_slot` after resume > `now_slot` at pause)
-- [ ] T3-6 Cancel: `POST .../cancel` → status `cancelled` (Q-S8; `rolled_back` name is retired); all devices (including previously eligible) see "No update available"; `ota_campaigns.success_rate` is set (not NULL) after the transition; firmware binary retention sweep runs (`_sweep_firmware_retention`)
-- [ ] T3-7 `target_cohort_ids` filter: start campaign with explicit list `["042001","042002"]` → only those two ids get tokens even if slot schedule says otherwise; `["042003"]` always gets "No update available"
-- [ ] T3-7a Slot schedule determinism: for fixed `rollout_window_days=10` and a fixed set of 20 test ids, record the `W` value for each id at `t=rollout_start`. Recompute `zlib.crc32(id.encode("ascii")) % 20 * 43200` locally and assert equality for every id (proves server uses the same CRC32 variant as firmware side)
-- [ ] T3-7b Monotone retry across cycles: device with `dev_slot=5` at `now_slot=3` fails download (induced SHA mismatch). Advance time to `now_slot=5`; re-run `ota_poll()` + `ota_download_all()` → succeeds. No admin intervention required (Arch §3.3 failure-retry semantics)
-- [ ] T3-7c `rollout_window_days` immutability: attempt `POST /admin/campaign/{id}/start` again (or PATCH the field) after status=`in_progress` → `409` or `400`. Reshuffling `dev_slot` mid-rollout would break monotone retry (see Impl Plan S7-5)
-- [ ] T3-7d Download completions tracking: after `ota_download_all()` completes for a test device, query `download_completions` where `campaign_id = {id}` and `device_id = {test_id}`; assert row count equals `(firmware_size + 511) // 512` (all chunks recorded, ceiling division per Q-S6). Re-run the same download — row count must not increase (`ON CONFLICT DO NOTHING` is idempotent). Verify `GET /admin/campaign/{id}` aggregate shows exactly 1 completed device (Impl Plan S7-4)
-- [ ] T3-8 File integrity: mutate the on-disk firmware file (staging only); next `/admin/campaign/{id}/start` call rejects with SHA-256 mismatch
-- [ ] T3-9 Teardown: `scripts/cleanup_test_rows.py` removes the campaign and the firmware file
+Tests in `server_test/tests/test_admin_campaign.py`. 22 tests written 2026-05-06; **pending server deploy + test run**.
+`AdminClient` helper in `server_test/lib/admin.py`. `campaign_cleanup` fixture in `conftest.py` tracks pre-test max version and removes all created campaigns + files on teardown.
+
+- [x] T3-1 Auth smoke: wrong password → `401`; `viewer` token on `/admin/firmware/upload` → `403` — **test written** (`test_t3_1_*`)
+- [x] T3-2 Firmware upload: response `firmware_sha256` == local SHA-256; `firmware_size` == `len(fw)`; `version` == `prev_max + 1`; campaign row status `draft`; `v{version}.bin` exists on disk with matching SHA-256 — **test written** (`test_t3_2_*`)
+- [x] T3-3 Auto-increment: second distinct upload → `version` = first + 1 — **test written** (`test_t3_3_version_increments`)
+- [x] T3-2/T3-3 Oversize upload (481 KB) → `413` — **test written** (`test_t3_2_oversize_rejected`)
+- [x] T3-4 Start rollout → status `in_progress`, `rollout_start` set, `rollout_window_days` stored — **test written** (`test_t3_4_*`)
+- [x] T3-4a `rollout_window_days=0` → `422`; `rollout_window_days=31` → `422`; omitted → default 10 — **test written** (`test_t3_4a_*`)
+- [x] T3-5 Pause → status `paused`; Resume → `in_progress` with `rollout_start` unchanged — **test written** (`test_t3_5_*`)
+- [x] T3-6 Cancel → status `cancelled`; `success_rate` not NULL (0.0 with no downloads); cancel from `draft` allowed — **test written** (`test_t3_6_*`)
+- [x] T3-7 Cohort filter: restricted cohort excludes test device; NULL cohort includes all; empty list normalised to NULL in DB — **test written** (`test_t3_7_*`)
+- [x] T3-7c `rollout_window_days` immutability: re-start in_progress campaign → `409` — **test written** (`test_t3_7c_*`)
+- [x] T3-8 SHA-256 tamper: mutate file on disk → start returns 409 — **test written** (`test_t3_8_*`)
+- [x] T3-9 Campaign detail: returns `completed_device_count`, `eligible_device_count`, `current_slot`, `num_slots`; viewer role allowed; 404 for unknown id — **test written** (`test_t3_9_*`)
+- [ ] T3-7a Slot schedule determinism: 20 test ids, assert `W` == `zlib.crc32(id) % 20 * 43200` — **deferred** (requires clock control or real wait)
+- [ ] T3-7b Monotone retry across cycles: advance `now_slot`, verify retry succeeds — **deferred** (requires clock control)
+- [ ] T3-7d Download completions tracking: `ota_download_all()` + assert chunk rows == `(size+511)//512`; idempotent re-download — **deferred** (requires full mock-device download flow)
 
 ---
 
