@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests", "lib"]
+markers = ["slow: soak / load tests (deselect with -m 'not slow')"]
+
+[tool.ruff]
+line-length = 100

@@ -1,0 +1,15 @@
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% else %}
+<div class="alert alert-success">
+  <strong>Uploaded v{{ version }}</strong> — {{ (size / 1024) | round(1) }} KB<br>
+  SHA-256: <code>{{ sha256 }}</code><br>
+  Campaign #{{ campaign_id }} created (draft). Use the campaign list below to start the rollout.
+</div>
+<div
+  hx-get="/admin/campaigns/list"
+  hx-trigger="load"
+  hx-target="#campaign-list"
+  hx-swap="innerHTML">
+</div>
+{% endif %}

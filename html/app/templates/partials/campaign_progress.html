@@ -1,0 +1,37 @@
+<div
+  hx-get="/admin/campaign/{{ campaign.id }}/progress"
+  hx-trigger="every 10s"
+  hx-swap="outerHTML">
+  <table style="width:auto;margin-bottom:.5rem">
+    <tr>
+      <th>Status</th>
+      <td><span class="badge badge-{{ campaign.status }}">{{ campaign.status }}</span></td>
+    </tr>
+    <tr>
+      <th>Devices completed</th>
+      <td>{{ completed }} / {{ eligible }}</td>
+    </tr>
+    {% if campaign.rollout_start %}
+    <tr>
+      <th>Slot progress</th>
+      <td>{{ current_slot + 1 }} / {{ num_slots }}</td>
+    </tr>
+    <tr>
+      <th>Rollout started</th>
+      <td>{{ campaign.rollout_start.strftime('%Y-%m-%d %H:%M') ~ ' UTC' }}</td>
+    </tr>
+    {% endif %}
+    {% if campaign.success_rate is not none and campaign.success_rate is not none %}
+    <tr>
+      <th>Final success rate</th>
+      <td>{{ "%.1f" % (campaign.success_rate * 100) }}%</td>
+    </tr>
+    {% endif %}
+  </table>
+  {% if campaign.status in ('in_progress', 'paused') and eligible > 0 %}
+  <div style="background:#eee;border-radius:4px;height:16px;width:300px;overflow:hidden">
+    <div style="background:#27ae60;height:100%;width:{{ ((completed / eligible) * 100) | round | int }}%"></div>
+  </div>
+  <small>{{ ((completed / eligible) * 100) | round(1) }}% complete</small>
+  {% endif %}
+</div>

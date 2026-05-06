@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly IoT CRL refresh
+Requires=refresh-crl.service
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+RandomizedDelaySec=3600
+
+[Install]
+WantedBy=timers.target

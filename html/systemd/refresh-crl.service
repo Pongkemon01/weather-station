@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh IoT device CRL and reload Nginx
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/home/akp/html/scripts/refresh_crl.sh /home/akp/html/pki
+StandardOutput=journal
+StandardError=journal
