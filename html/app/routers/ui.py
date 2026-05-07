@@ -123,12 +123,12 @@ async def login_post(
     return resp
 
 
-@router.post("/logout", response_class=HTMLResponse)
+@router.post("/logout-ui", response_class=HTMLResponse)
 async def logout(request: Request, csrf_token: str = Form(...)):
     if not check_csrf(csrf_token):
         return HTMLResponse("Bad request.", status_code=400)
     resp = RedirectResponse("/admin/login.html", status_code=303)
-    resp.delete_cookie("access_token")
+    resp.delete_cookie("access_token", httponly=True, samesite="strict")
     return resp
 
 

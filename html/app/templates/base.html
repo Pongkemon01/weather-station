@@ -67,7 +67,7 @@
     <a href="/admin/campaigns">Campaigns</a>
     <span class="spacer"></span>
     <span class="user-info">{{ user.sub }} &middot; {{ user.role }}</span>
-    <form method="post" action="/admin/logout" style="margin:0">
+    <form method="post" action="/admin/logout-ui" style="margin:0">
       <input type="hidden" name="csrf_token" value="{{ csrf_token | default('') }}">
       <button type="submit" class="btn btn-ghost" style="padding:.2rem .55rem;font-size:.78rem">Logout</button>
     </form>
