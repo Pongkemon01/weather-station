@@ -113,6 +113,27 @@ def internal_url() -> str:
     return _need("INTERNAL_URL", INTERNAL_URL)
 
 
+# ── Raw string fixtures for T4 (mTLS / Nginx tests via BASE_URL) ──────────────
+@pytest.fixture
+def base_url() -> str:
+    """External Nginx URL for mTLS tests."""
+    return _need("BASE_URL", BASE_URL)
+
+
+@pytest.fixture
+def ca_bundle() -> str:
+    """Path to CA bundle PEM for TLS verification."""
+    return _need("CA_BUNDLE", CA_BUNDLE)
+
+
+@pytest.fixture
+def device_cert() -> tuple[str, str]:
+    """(cert_path, key_path) for the shared device client cert."""
+    _need("DEVICE_CERT", DEVICE_CERT)
+    _need("DEVICE_KEY", DEVICE_KEY)
+    return (DEVICE_CERT, DEVICE_KEY)
+
+
 # ── DB connection for assertions ──────────────────────────────────────────────
 @pytest_asyncio.fixture
 async def db():

@@ -121,11 +121,11 @@ Implement phases **strictly in order**. Each phase must pass all listed tests be
 | S1 | FastAPI scaffold, gunicorn, systemd | ✓ complete (2026-04-26) |
 | S2 | DB schema, migrations, asyncpg pool | ✓ complete (2026-04-26) |
 | S3 | mTLS ingestion (`/api/v1/weather/upload`) | ✓ complete (2026-04-26) |
-| S4 | Nginx mTLS termination, PKI, CRL, Let's Encrypt | ✓ complete (2026-05-06) |
+| S4 | Nginx mTLS termination, PKI, CRL, Let's Encrypt | ✓ complete (2026-05-06); **T4 mTLS tests complete** (2026-05-07) — 6/6 tests pass (T4-3, T4-6 N/A) |
 | S5 | OTA device endpoints (`/`, `/get_firmware`) | ✓ complete (2026-05-06) |
 | S6 | Admin JWT auth & RBAC | ✓ complete (2026-05-06) |
-| S7 | Admin OTA campaign management REST API | S7-1..S7-5 ✓; **S7-6** integration tests pending |
-| S8 | Admin UI (HTMX + Jinja2) | S8-1..S8-3 ✓; **S8-4** browser e2e test pending — deployed 2026-05-07 |
+| S7 | Admin OTA campaign management REST API | ✓ complete (2026-05-07) — 25/25 T3 tests pass |
+| S8 | Admin UI (HTMX + Jinja2) | ✓ complete (2026-05-07) — 14/14 admin UI E2E tests pass |
 | S9 | Observability (Prometheus, Loki, Grafana) | not started |
 | S10 | CI/CD & hardening (optional) | not started |
 

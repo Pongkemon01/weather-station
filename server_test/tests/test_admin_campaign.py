@@ -99,8 +99,8 @@ async def test_t3_3_version_increments(admin, campaign_cleanup):
 # ── T3-2/T3-3: Oversize upload rejected ──────────────────────────────────────
 
 async def test_t3_2_oversize_rejected(admin, campaign_cleanup):
-    # 481 KB — 1 byte over the 480 KB limit
-    oversize = bytes(482305)
+    # 480 KB + 1 byte over the limit (480 * 1024 + 1 = 491521)
+    oversize = bytes(491521)
     r = await admin.upload_firmware(oversize)
     assert r.status_code == 413
 
