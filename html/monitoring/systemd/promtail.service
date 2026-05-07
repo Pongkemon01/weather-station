@@ -1,0 +1,13 @@
+[Unit]
+Description=Promtail log shipper for IoT server
+After=network.target loki.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/promtail -config.file=/etc/promtail/promtail.yml
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

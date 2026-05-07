@@ -1,12 +1,15 @@
 """Weather data ingestion router — POST /api/v1/weather/upload."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.auth.mtls import mtls_required
 from app.db.queries import insert_ingest_log, insert_weather_records, upsert_device
 from app.deps import get_db
+from app.metrics import ingest_chunks_total, ingest_duplicates_total, ingest_lag_seconds
 from app.ota.parser import parse_upload
 
 router = APIRouter(prefix="/api/v1/weather", tags=["weather"])
@@ -38,7 +41,12 @@ async def upload(
         device_id = await upsert_device(conn, region, station)
         is_new = await insert_ingest_log(conn, idempotency_key)
         if not is_new:
+            ingest_duplicates_total.inc()
             return {"status": "duplicate"}
         await insert_weather_records(conn, device_id, records)
+
+    ingest_chunks_total.inc(len(records))
+    lag = (datetime.now(timezone.utc) - records[0]["time"]).total_seconds()
+    ingest_lag_seconds.observe(max(0.0, lag))
 
     return {"status": "ok"}

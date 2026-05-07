@@ -2,11 +2,16 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import settings
 from app.db import pool
+from app.logging_config import configure_logging
 from app.routers import admin, ota, ui, weather
+
+configure_logging()
 
 
 @asynccontextmanager
@@ -29,6 +34,18 @@ def _validate_firmware_dir() -> None:
 
 
 app = FastAPI(title="IoT Weather Station Server", lifespan=lifespan)
+
+# Single worker (gunicorn -w 1): standard in-process registry is sufficient.
+# /metrics is safe: gunicorn binds 127.0.0.1:8000; Nginx never proxies this path.
+Instrumentator().instrument(app)
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics_endpoint(request: Request) -> Response:
+    if request.client.host not in ("127.0.0.1", "::1"):
+        return Response(status_code=403)
+    return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
+
 
 app.include_router(weather.router)
 app.include_router(ota.router)

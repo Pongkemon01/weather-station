@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.auth.jwt import check_password, create_token, require_role
 from app.config import settings
+from app.metrics import ota_campaign_success_rate
 from app.db.queries import (
     compute_campaign_success_rate,
     count_completed_devices,
@@ -256,6 +257,7 @@ async def campaign_cancel(
     rate = await compute_campaign_success_rate(conn, campaign_id, row["firmware_size"])
     await set_campaign_cancelled(conn, campaign_id, rate)
     await _sweep_firmware_retention(conn, settings.firmware_keep_n)
+    ota_campaign_success_rate.labels(campaign_id=str(campaign_id)).set(rate)
     return {"id": campaign_id, "status": "cancelled", "success_rate": rate}
 
 

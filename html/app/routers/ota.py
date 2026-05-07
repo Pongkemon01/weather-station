@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse
 from app.auth.mtls import mtls_required
 from app.db.queries import record_chunk_download
 from app.deps import get_db
+from app.metrics import ota_chunks_served_total
 from app.ota.campaign import compute_wait, get_active_campaign_for_device
 from app.ota.crc32 import crc32_mpeg2
 
@@ -95,6 +96,7 @@ async def get_firmware(
     body = chunk + crc.to_bytes(4, "little")
 
     await record_chunk_download(conn, campaign.id, device_id, offset // _MAX_CHUNK)
+    ota_chunks_served_total.inc()
 
     return Response(content=body, media_type="application/octet-stream")
 

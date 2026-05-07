@@ -7,11 +7,6 @@
 >
 > **Server architecture:** `Server_Architecture.md` | **Server impl plan:** `Server_Implementation_Plan.md` | **Server test plan:** `Server_Test_Plan.md`
 
----
-
-## Instructions
-
-When starting, always invoke the `karpathy-guidelines` skill.
 
 ---
 

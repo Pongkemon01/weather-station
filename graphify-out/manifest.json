@@ -39,17 +39,37 @@
     "mtime": 1777191254.8535535,
     "hash": "1ad3beecb3ee9b42c03672647a991149"
   },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\logging_config.py": {
+    "mtime": 1778117437.3302343,
+    "hash": "3c3213080fcd4df37b31b15489e22024"
+  },
   "C:\\Users\\akrap\\weather-station\\html\\app\\main.py": {
-    "mtime": 1777191248.392468,
-    "hash": "edd5bbc01aa940a583dc58155d6fdec7"
+    "mtime": 1778118705.0383155,
+    "hash": "10309e1df6fbd595c1d6e010c5d66f8c"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\metrics.py": {
+    "mtime": 1778117201.4116137,
+    "hash": "32d8f99c4905634ecd4d25ca2cbb1727"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\templating.py": {
+    "mtime": 1778053104.8172965,
+    "hash": "b12b20ac1c486a35566b92bd4d397473"
   },
   "C:\\Users\\akrap\\weather-station\\html\\app\\__init__.py": {
     "mtime": 1777190271.515546,
     "hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\auth\\csrf.py": {
+    "mtime": 1778053104.2085264,
+    "hash": "04261b2cf74e7f2cdbb582babe2511ff"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\auth\\jwt.py": {
+    "mtime": 1778049815.680755,
+    "hash": "e939b94327c02b9f6816662d3b3b3114"
+  },
   "C:\\Users\\akrap\\weather-station\\html\\app\\auth\\mtls.py": {
-    "mtime": 1777970923.2321677,
-    "hash": "9b999f1cd7398810a2c876753d39dbea"
+    "mtime": 1778117277.4049914,
+    "hash": "b2818ec019312cf736bf7dd274bdf4a9"
   },
   "C:\\Users\\akrap\\weather-station\\html\\app\\auth\\__init__.py": {
     "mtime": 1777970917.377409,
@@ -60,8 +80,8 @@
     "hash": "f0b9d4d962f71869209b7f9a2f9da7a0"
   },
   "C:\\Users\\akrap\\weather-station\\html\\app\\db\\queries.py": {
-    "mtime": 1778035790.4100323,
-    "hash": "763b070796515c8321382efb76a6f0e9"
+    "mtime": 1778108005.1976933,
+    "hash": "6f326a1daeae86bede94da36f028fa15"
   },
   "C:\\Users\\akrap\\weather-station\\html\\app\\db\\schema.sql": {
     "mtime": 1777191204.9034235,
@@ -100,16 +120,20 @@
     "hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "C:\\Users\\akrap\\weather-station\\html\\app\\routers\\admin.py": {
-    "mtime": 1777190286.2993882,
-    "hash": "3fde8f4abf910f38c0d8e672cf2956a1"
+    "mtime": 1778117294.3607066,
+    "hash": "907c8ff927f5739e4fc3a566d0987432"
   },
   "C:\\Users\\akrap\\weather-station\\html\\app\\routers\\ota.py": {
-    "mtime": 1778035829.1865432,
-    "hash": "edb884cd0fbd69ebfe6d772ad5971c65"
+    "mtime": 1778117269.5228553,
+    "hash": "4da64d71e8809fdfbf09d0f7e554b36a"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\routers\\ui.py": {
+    "mtime": 1778112195.955402,
+    "hash": "bddc44e893be877ce973cd024da8053b"
   },
   "C:\\Users\\akrap\\weather-station\\html\\app\\routers\\weather.py": {
-    "mtime": 1777971036.1640937,
-    "hash": "eb2681589abcf017aa7ed3d54e085aad"
+    "mtime": 1778117252.4390137,
+    "hash": "2f360a8810b8a9387aab5c65b92d9666"
   },
   "C:\\Users\\akrap\\weather-station\\html\\app\\routers\\__init__.py": {
     "mtime": 1777190280.2994719,
@@ -122,6 +146,10 @@
   "C:\\Users\\akrap\\weather-station\\html\\scripts\\__init__.py": {
     "mtime": 1777191221.1185918,
     "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\tests\\test_auth.py": {
+    "mtime": 1778049847.946869,
+    "hash": "bd9bd5df306baf2b46caabf0afdbbeac"
   },
   "C:\\Users\\akrap\\weather-station\\html\\tests\\test_crc32.py": {
     "mtime": 1778035843.7746954,
@@ -32776,16 +32804,24 @@
     "hash": "15b5223f4a985b5bc6465198a73225a7"
   },
   "C:\\Users\\akrap\\weather-station\\server_test\\conftest.py": {
-    "mtime": 1778035986.1184113,
-    "hash": "34b72bed54c0228bbc12f2afd92ef2e3"
+    "mtime": 1778113581.4575703,
+    "hash": "b750ad2a217c1f0f9c8ff5203213db18"
+  },
+  "C:\\Users\\akrap\\weather-station\\server_test\\s9_6_verify.py": {
+    "mtime": 1778118164.7116327,
+    "hash": "edac465035b4b8d4f921761c29cad8e5"
+  },
+  "C:\\Users\\akrap\\weather-station\\server_test\\lib\\admin.py": {
+    "mtime": 1778051803.4843664,
+    "hash": "d09f19e4e310416d689e669b75b8e554"
   },
   "C:\\Users\\akrap\\weather-station\\server_test\\lib\\crc32.py": {
     "mtime": 1777977323.7691913,
     "hash": "aa0ea9ae15842654bc1c097708100b13"
   },
   "C:\\Users\\akrap\\weather-station\\server_test\\lib\\fixedpt.py": {
-    "mtime": 1777977448.9946635,
-    "hash": "c67833fb4af98c13849d1b7092403d01"
+    "mtime": 1778049536.9618318,
+    "hash": "31da0b85ab3b124027dd360c9c3ba517"
   },
   "C:\\Users\\akrap\\weather-station\\server_test\\lib\\mock_device.py": {
     "mtime": 1777977211.356705,
@@ -32807,9 +32843,25 @@
     "mtime": 1777977281.3934038,
     "hash": "c78101f0bff4fbbf2c3cb832cea31d75"
   },
+  "C:\\Users\\akrap\\weather-station\\server_test\\tests\\test_admin_auth.py": {
+    "mtime": 1778050065.138777,
+    "hash": "e04e1814d28a9b2a9df9a404427fdecc"
+  },
+  "C:\\Users\\akrap\\weather-station\\server_test\\tests\\test_admin_campaign.py": {
+    "mtime": 1778111575.9286497,
+    "hash": "0d6805b5bd08ebf39eaf603f8cd7d730"
+  },
+  "C:\\Users\\akrap\\weather-station\\server_test\\tests\\test_admin_ui.py": {
+    "mtime": 1778112204.6182363,
+    "hash": "72d851b64c7f6edaa60286a7853a729c"
+  },
   "C:\\Users\\akrap\\weather-station\\server_test\\tests\\test_ingest.py": {
     "mtime": 1777977426.1573224,
     "hash": "3d8bcd82975d59ec0dd8ef368c061bbe"
+  },
+  "C:\\Users\\akrap\\weather-station\\server_test\\tests\\test_mtls.py": {
+    "mtime": 1778113933.981567,
+    "hash": "61d56eb810ca87a3311aca4eae3f3898"
   },
   "C:\\Users\\akrap\\weather-station\\server_test\\tests\\test_ota_device.py": {
     "mtime": 1778036086.263086,
@@ -33160,8 +33212,8 @@
     "hash": "f0c147986e95d13713104ff4dd18e655"
   },
   "C:\\Users\\akrap\\weather-station\\claude.md": {
-    "mtime": 1778033995.5817544,
-    "hash": "f0ff230c646bb0ed1c0bb0b5e7b056f3"
+    "mtime": 1778117079.4683602,
+    "hash": "ab32acf004a145d4f96a2311cf1a9b5e"
   },
   "C:\\Users\\akrap\\weather-station\\GEMINI.md": {
     "mtime": 1777277523.4231646,
@@ -33172,8 +33224,8 @@
     "hash": "dedc41dbc6a66fcff8d20652deed979d"
   },
   "C:\\Users\\akrap\\weather-station\\IMPLEMENTATION_STATUS.md": {
-    "mtime": 1777189402.3828478,
-    "hash": "97074867b55cafd45aa4ef7bd77ce116"
+    "mtime": 1778118798.2719424,
+    "hash": "b768b07737980a399df5e28684ee0762"
   },
   "C:\\Users\\akrap\\weather-station\\ntp_manual.md": {
     "mtime": 1776567572.795949,
@@ -33188,16 +33240,76 @@
     "hash": "67839a054c607d472abcde73286d136e"
   },
   "C:\\Users\\akrap\\weather-station\\Server_Implementation_Plan.md": {
-    "mtime": 1778036328.9637318,
-    "hash": "1367af47d7a9ea0ec8f2d5bde785be51"
+    "mtime": 1778118789.7753718,
+    "hash": "bc49a80f3e3407e8fb936029242296c2"
   },
   "C:\\Users\\akrap\\weather-station\\Server_Test_Plan.md": {
-    "mtime": 1777977550.1749218,
-    "hash": "ae8c6707435bfa0bb65633e868c2ce53"
+    "mtime": 1778114305.5473754,
+    "hash": "58bdee3413b7a7e571d6e86844dc8bfa"
   },
   "C:\\Users\\akrap\\weather-station\\html\\requirements.txt": {
-    "mtime": 1777190271.4594514,
-    "hash": "dff03a3ea70554493febc0917781c907"
+    "mtime": 1778117441.2632358,
+    "hash": "d95f5c77dbaed0a62ce2a3169df515b8"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\templates\\base.html": {
+    "mtime": 1778112200.3857899,
+    "hash": "b330baa1343b6b25e02b7309e87499ff"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\templates\\campaigns.html": {
+    "mtime": 1778107923.0917983,
+    "hash": "63470bbc9013a465172199fbc8c2d0da"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\templates\\campaign_detail.html": {
+    "mtime": 1778107943.3621235,
+    "hash": "786ba9d02b30fe066b540b5890661610"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\templates\\dashboard.html": {
+    "mtime": 1778107909.3218813,
+    "hash": "0ae2497581cedc9ae4c0954c2ed07848"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\templates\\login.html": {
+    "mtime": 1778107907.0377262,
+    "hash": "7b227478c37283de86d74c917c488c68"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\templates\\partials\\campaign_list.html": {
+    "mtime": 1778107934.2396152,
+    "hash": "0f19e4b2a66bf47b04c49dbb8557a0e8"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\templates\\partials\\campaign_progress.html": {
+    "mtime": 1778108141.9271052,
+    "hash": "c34303d4a3ebf930efdedc76e458b80d"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\templates\\partials\\device_table.html": {
+    "mtime": 1778107913.8935058,
+    "hash": "8e09bf763495e5fdb98d5c07444dbaec"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\app\\templates\\partials\\upload_result.html": {
+    "mtime": 1778053105.4133427,
+    "hash": "025c1232aecb043ca795b5ebea81d6e1"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\monitoring\\grafana\\provisioning\\dashboards\\dashboards.yml": {
+    "mtime": 1778117321.1184762,
+    "hash": "af5b9218135dd164dcb12d7db884ac81"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\monitoring\\grafana\\provisioning\\datasources\\datasources.yml": {
+    "mtime": 1778117320.3497317,
+    "hash": "a784dd8d8d4c8d2d807a908099310fbc"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\monitoring\\loki\\loki.yml": {
+    "mtime": 1778117310.3410943,
+    "hash": "543e7584f0ef4fba888a3ea57d820f53"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\monitoring\\prometheus\\alerts.yml": {
+    "mtime": 1778117307.5802965,
+    "hash": "9a857ffbdd5b05d9d03025397b42982c"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\monitoring\\prometheus\\prometheus.yml": {
+    "mtime": 1778117300.0073566,
+    "hash": "9af19e509e77e595307d31a42ba29458"
+  },
+  "C:\\Users\\akrap\\weather-station\\html\\monitoring\\promtail\\promtail.yml": {
+    "mtime": 1778117313.7836826,
+    "hash": "bac359fc267d467754c183c9d3680693"
   },
   "C:\\Users\\akrap\\weather-station\\lib\\tinyusb\\AGENTS.md": {
     "mtime": 1776304604.7882757,
@@ -47304,8 +47416,8 @@
     "hash": "06d4d1ef7ee7ecb38c578e1d4d51ac04"
   },
   "C:\\Users\\akrap\\weather-station\\server_test\\requirements.txt": {
-    "mtime": 1777977148.045708,
-    "hash": "894216df119d6221f3329ca779980c5a"
+    "mtime": 1778113490.258508,
+    "hash": "819fa7e7cb0ded81f430291048845b1c"
   },
   "C:\\Users\\akrap\\weather-station\\https_manual.pdf": {
     "mtime": 1776424321.927478,

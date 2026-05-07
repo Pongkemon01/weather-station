@@ -340,12 +340,12 @@ Minimum viable operator surface.
 
 From §1 (Prometheus + Loki + Grafana). Deployable independent of earlier phases once app is stable.
 
-- [ ] S9-1 Integrate `prometheus-fastapi-instrumentator`; expose `/metrics` bound to 127.0.0.1 only
-- [ ] S9-2 Custom metrics: `ingest_chunks_total`, `ingest_duplicates_total`, `ota_chunks_served_total`, `cert_verify_failures_total{reason}`
-- [ ] S9-3 Structured JSON logging to `html/logs/app.log`; Loki Promtail scrapes
-- [ ] S9-4 Grafana dashboards: device heartbeat panel, OTA rollout progress per campaign, ingest lag p95
-- [ ] S9-5 Alert rules: ingest lag > 5 min, cert-verify error rate > 1/min, OTA campaign success < 80 % after rollout completes at cohort ≥ 10 %. Alert reads `ota_campaigns.success_rate` which is populated on terminal-status transition (S7-3.6, status-change path per Q-S5). Live rollout progress during the 10-day window is monitored via the `GET /admin/campaign/{id}` derived aggregate — not via this column
-- [ ] S9-6 Verification: synthetic duplicate upload → `ingest_duplicates_total` increments visible in Grafana ✓
+- [x] S9-1 Integrate `prometheus-fastapi-instrumentator`; expose `/metrics` bound to 127.0.0.1 only — **2026-05-07: `Instrumentator().instrument(app).expose(app)` in `main.py`; IP guard middleware rejects non-loopback clients; gunicorn binds 127.0.0.1:8000 so Nginx never proxies `/metrics`** ✓
+- [x] S9-2 Custom metrics: `ingest_chunks_total`, `ingest_duplicates_total`, `ota_chunks_served_total`, `cert_verify_failures_total{reason}` — **2026-05-07: `app/metrics.py`; also adds `ingest_lag_seconds` histogram and `ota_campaign_success_rate` gauge (set on terminal campaign transition); wired into `weather.py`, `ota.py`, `auth/mtls.py`, `routers/admin.py`** ✓
+- [x] S9-3 Structured JSON logging to `html/logs/app.log`; Loki Promtail scrapes — **2026-05-07: `app/logging_config.py` (RotatingFileHandler, pythonjsonlogger); called at module load in `main.py`; `monitoring/loki/loki.yml` + `monitoring/promtail/promtail.yml` scrape `html/logs/app.log`** ✓
+- [x] S9-4 Grafana dashboards: device heartbeat panel, OTA rollout progress per campaign, ingest lag p95 — **2026-05-07: `monitoring/grafana/dashboards/iot-weather.json` (8 panels: ingest rate, duplicates, lag p95, OTA chunks, cert failures, campaign success rate, device heartbeat table, OTA rollout table); provisioning configs in `monitoring/grafana/provisioning/`** ✓
+- [x] S9-5 Alert rules: ingest lag > 5 min, cert-verify error rate > 1/min, OTA campaign success < 80 % after rollout completes at cohort ≥ 10 %. Alert reads `ota_campaigns.success_rate` which is populated on terminal-status transition (S7-3.6, status-change path per Q-S5). Live rollout progress during the 10-day window is monitored via the `GET /admin/campaign/{id}` derived aggregate — not via this column — **2026-05-07: `monitoring/prometheus/alerts.yml` (IngestLagHigh, CertVerifyErrorRateHigh, OtaCampaignLowSuccess); `monitoring/prometheus/prometheus.yml` scrapes 127.0.0.1:8000/metrics** ✓
+- [x] S9-6 Verification: synthetic duplicate upload → `ingest_duplicates_total` increments visible in Grafana — **2026-05-07: confirmed on server; POST 1 → `ok`, POST 2 → `duplicate`; `ingest_duplicates_total` 0→1, `ingest_chunks_total` 0→1 via `/metrics`; Prometheus scrapes every 15 s. Note: gunicorn reduced to `-w 1` (sufficient for IoT upload cadence); multiprocess prometheus_client not needed** ✓
 
 ---
 

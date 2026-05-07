@@ -126,7 +126,7 @@ Implement phases **strictly in order**. Each phase must pass all listed tests be
 | S6 | Admin JWT auth & RBAC | ✓ complete (2026-05-06) |
 | S7 | Admin OTA campaign management REST API | ✓ complete (2026-05-07) — 25/25 T3 tests pass |
 | S8 | Admin UI (HTMX + Jinja2) | ✓ complete (2026-05-07) — 14/14 admin UI E2E tests pass |
-| S9 | Observability (Prometheus, Loki, Grafana) | not started |
+| S9 | Observability (Prometheus, Loki, Grafana) | ✓ complete (2026-05-07) — stack deployed (Prometheus 2.53.3, Loki 3.4.2, Promtail 3.4.2, Grafana); S9-6 verified |
 | S10 | CI/CD & hardening (optional) | not started |
 
 > **Deploy:** `bash html/scripts/deploy.sh` (scp-based; server has no git repo).

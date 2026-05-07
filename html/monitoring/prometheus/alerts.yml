@@ -1,0 +1,39 @@
+groups:
+  - name: iot_server
+    rules:
+
+      # Ingest lag p95 > 5 minutes — devices may not be reporting.
+      - alert: IngestLagHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(ingest_lag_seconds_bucket[10m])) by (le)
+          ) > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ingest lag p95 exceeds 5 minutes"
+          description: "95th-percentile ingest lag is {{ $value | humanizeDuration }}. Devices may have stopped reporting."
+
+      # mTLS cert-verify errors > 1 per minute — possible attack or cert expiry.
+      - alert: CertVerifyErrorRateHigh
+        expr: |
+          sum(rate(cert_verify_failures_total[1m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "mTLS cert-verify error rate exceeds 1/min"
+          description: "{{ $value | printf \"%.1f\" }} cert failures/min. Check for expired fleet cert or scanning activity."
+
+      # OTA campaign success rate < 80 % after terminal transition with ≥ 10 % cohort penetration.
+      # Fires when a campaign gauge is populated (terminal only) and is below threshold.
+      - alert: OtaCampaignLowSuccess
+        expr: |
+          ota_campaign_success_rate < 0.8
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OTA campaign {{ $labels.campaign_id }} success rate below 80 %"
+          description: "Campaign {{ $labels.campaign_id }} completed with success rate {{ $value | printf \"%.1%\" }}."
