@@ -34,8 +34,11 @@ tar xzf iot_deploy.tar.gz
 rm iot_deploy.tar.gz
 ~/html/.venv/bin/pip install -r ~/html/requirements.txt -q
 
-# Deploy nginx config and reload if it changed.
+# Deploy nginx config. On first deploy, also install the upstream definition.
 sudo cp ~/html/nginx/iot_server.conf /etc/nginx/conf.d/iot_server.conf
+if [ ! -f /etc/nginx/conf.d/iot_upstream.conf ]; then
+    sudo cp ~/html/nginx/iot_upstream_blue.conf /etc/nginx/conf.d/iot_upstream.conf
+fi
 sudo nginx -t
 sudo systemctl reload nginx
 
