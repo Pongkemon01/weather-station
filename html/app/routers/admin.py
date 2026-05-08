@@ -6,28 +6,37 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 import asyncpg
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
-from app.auth.jwt import check_password, create_token, require_role
+from app.auth.jwt import check_password, create_token, hash_password, require_role
 from app.config import settings
 from app.metrics import ota_campaign_success_rate
 from app.db.queries import (
     compute_campaign_success_rate,
     count_completed_devices,
     count_eligible_devices,
+    create_admin_user,
+    delete_admin_user,
     get_admin_user,
+    get_admin_user_by_id,
     get_campaign,
     get_max_firmware_version,
     insert_campaign,
+    list_admin_users,
     list_terminal_campaigns_ordered,
     set_campaign_cancelled,
     set_campaign_in_progress,
     set_campaign_paused,
     set_campaign_resumed,
+    update_admin_user_info,
+    update_admin_user_password,
 )
 from app.deps import get_db
 
@@ -54,6 +63,15 @@ async def _sweep_firmware_retention(conn: asyncpg.Connection, keep_n: int) -> No
 
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _sign_firmware(data: bytes, key_path: str) -> str | None:
+    """Sign firmware with Ed25519. Returns hex signature, or None if no key configured."""
+    if not key_path:
+        return None
+    pem = Path(key_path).read_bytes()
+    key: Ed25519PrivateKey = load_pem_private_key(pem, password=None)  # type: ignore[assignment]
+    return key.sign(data).hex()
 
 
 async def _get_campaign_or_404(conn: asyncpg.Connection, campaign_id: int):
@@ -91,7 +109,7 @@ async def login(
     if not user or not check_password(password, user["password_hash"]):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return {
-        "access_token": create_token(sub=user["username"], role=user["role"]),
+        "access_token": create_token(sub=user["username"], role=user["role"], sub_id=user["id"]),
         "token_type": "bearer",
     }
 
@@ -112,8 +130,132 @@ async def list_users(
     _user: dict = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    rows = await conn.fetch("SELECT id, username, role, created_at FROM admin_users ORDER BY id")
+    rows = await list_admin_users(conn)
     return [dict(r) for r in rows]
+
+
+# ── Phase UM2: user management API ───────────────────────────────────────────
+
+_VALID_ROLES: frozenset[str] = frozenset({"viewer", "operator", "admin"})
+
+
+class CreateUserRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_.\-]+$")
+    password: str = Field(min_length=8)
+    role: Literal["viewer", "operator", "admin"]
+
+
+class UpdateUserInfoRequest(BaseModel):
+    username: str | None = Field(default=None, min_length=1, max_length=64)
+    role: Literal["viewer", "operator", "admin"] | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str | None = None
+    new_password: str = Field(min_length=8)
+
+
+@router.post("/users", status_code=201)
+async def create_user(
+    body: CreateUserRequest,
+    _caller: dict = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+) -> dict:
+    pw_hash = hash_password(body.password)
+    new_id = await create_admin_user(conn, body.username, pw_hash, body.role)
+    if new_id is None:
+        raise HTTPException(status_code=409, detail="Username already exists")
+    row = await get_admin_user_by_id(conn, new_id)
+    return {"id": row["id"], "username": row["username"], "role": row["role"], "created_at": row["created_at"]}
+
+
+@router.put("/users/{user_id}")
+async def update_user_info(
+    user_id: int,
+    body: UpdateUserInfoRequest,
+    caller: dict = Depends(require_role("viewer")),
+    conn: asyncpg.Connection = Depends(get_db),
+) -> dict:
+    caller_is_admin = caller["role"] == "admin"
+    caller_id: int | None = caller.get("sub_id")
+    # Fallback for tokens issued before sub_id was added (24 h TTL makes this transient)
+    if caller_id is None:
+        row = await get_admin_user(conn, caller["sub"])
+        caller_id = row["id"] if row else None
+
+    if not caller_is_admin and user_id != caller_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not caller_is_admin and body.role is not None:
+        raise HTTPException(status_code=403, detail="Cannot change own role")
+
+    current = await get_admin_user_by_id(conn, user_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    new_username = body.username if body.username is not None else current["username"]
+    new_role = body.role if body.role is not None else current["role"]
+
+    if caller_is_admin and user_id == caller_id and new_role != "admin":
+        raise HTTPException(status_code=403, detail="Admin cannot demote themselves")
+
+    try:
+        result = await update_admin_user_info(conn, user_id, new_username, new_role)
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(status_code=409, detail="Username already exists")
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {"id": user_id, "username": new_username, "role": new_role}
+
+
+@router.put("/users/{user_id}/password", status_code=204)
+async def change_password(
+    user_id: int,
+    body: ChangePasswordRequest,
+    caller: dict = Depends(require_role("viewer")),
+    conn: asyncpg.Connection = Depends(get_db),
+) -> None:
+    caller_is_admin = caller["role"] == "admin"
+    caller_id: int | None = caller.get("sub_id")
+    if caller_id is None:
+        row = await get_admin_user(conn, caller["sub"])
+        caller_id = row["id"] if row else None
+
+    if not caller_is_admin and user_id != caller_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    if user_id == caller_id:
+        if body.current_password is None:
+            raise HTTPException(status_code=422, detail="Current password required")
+        current = await get_admin_user_by_id(conn, user_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not check_password(body.current_password, current["password_hash"]):
+            raise HTTPException(status_code=422, detail="Current password incorrect")
+
+    pw_hash = hash_password(body.new_password)
+    ok = await update_admin_user_password(conn, user_id, pw_hash)
+    if not ok:
+        raise HTTPException(status_code=404, detail="User not found")
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(
+    user_id: int,
+    caller: dict = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+) -> None:
+    caller_id: int | None = caller.get("sub_id")
+    if caller_id is None:
+        row = await get_admin_user(conn, caller["sub"])
+        caller_id = row["id"] if row else None
+
+    if user_id == caller_id:
+        raise HTTPException(status_code=403, detail="Cannot delete yourself")
+    ok = await delete_admin_user(conn, user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="User not found")
 
 
 # ── Phase 7: firmware upload ──────────────────────────────────────────────────
@@ -168,13 +310,21 @@ async def upload_firmware(
             except OSError:
                 pass
 
+    # Optional Ed25519 signature (S10-4). Written only when SIGNING_PRIVATE_KEY_PATH is set.
+    sig_hex = _sign_firmware(data, settings.signing_private_key_path)
+    if sig_hex is not None:
+        (firmware_dir / f"v{new_version}.sig").write_text(sig_hex)
+
     await _sweep_firmware_retention(conn, settings.firmware_keep_n)
-    return {
+    response: dict = {
         "id": campaign_id,
         "version": new_version,
         "firmware_sha256": sha256,
         "firmware_size": size,
     }
+    if sig_hex is not None:
+        response["firmware_ed25519_sig"] = sig_hex
+    return response
 
 
 # ── Phase 7: campaign lifecycle ───────────────────────────────────────────────

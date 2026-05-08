@@ -1,0 +1,10 @@
+[Unit]
+Description=IoT Server — Daily PostgreSQL backup timer
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

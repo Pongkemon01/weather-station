@@ -6,6 +6,8 @@
 > **Full OTA architecture:** `OTA_Firmware_Architecture.md` | **OTA phase status:** `IMPLEMENTATION_STATUS.md`
 >
 > **Server architecture:** `Server_Architecture.md` | **Server impl plan:** `Server_Implementation_Plan.md` | **Server test plan:** `Server_Test_Plan.md`
+>
+> **User management impl plan:** `User_Management_Implementation_Plan.md` | **User management test plan:** `User_Management_Test_Plan.md`
 
 
 ---
@@ -224,6 +226,8 @@ Bootloader uses `bootloader/CubeMX/Bootloader.ioc` with SPI1, IWDG, Flash HAL on
 | USB CDC protocol | `Src/cdctask.c` header block |
 | Server-side code (in `html/`) | `Server_Architecture.md`, `Server_Implementation_Plan.md` |
 | Server verification tests (in `server_test/`) | `Server_Test_Plan.md`, `Server_Architecture.md §3` |
+| User management (in `html/`) | `User_Management_Implementation_Plan.md` |
+| User management tests (in `server_test/`) | `User_Management_Test_Plan.md` |
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph

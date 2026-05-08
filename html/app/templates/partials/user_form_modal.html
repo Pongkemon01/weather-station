@@ -1,0 +1,103 @@
+<dialog id="user-modal" style="
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  color: var(--text);
+  min-width: 380px;
+  max-width: 90vw;
+">
+  <h2 style="margin-bottom:1.25rem; font-size:1.05rem; font-weight:600">
+    {% if create %}New User{% else %}Edit User{% endif %}
+  </h2>
+
+  {% if create %}
+  <form hx-post="/admin/users/create-ui"
+        hx-target="#user-table"
+        hx-on::after-request="if(event.detail.successful) document.getElementById('user-modal').close()">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div style="margin-bottom:.75rem">
+      <label style="display:block; margin-bottom:.25rem; color:var(--muted); font-size:.8125rem">Username</label>
+      <input class="form-control" name="username" required style="width:100%">
+    </div>
+    <div style="margin-bottom:.75rem">
+      <label style="display:block; margin-bottom:.25rem; color:var(--muted); font-size:.8125rem">Role</label>
+      <select class="form-control" name="role" style="width:100%">
+        <option value="viewer">viewer</option>
+        <option value="operator">operator</option>
+        <option value="admin">admin</option>
+      </select>
+    </div>
+    <div style="margin-bottom:.75rem">
+      <label style="display:block; margin-bottom:.25rem; color:var(--muted); font-size:.8125rem">Password</label>
+      <input class="form-control" type="password" name="password" required style="width:100%">
+    </div>
+    <div style="margin-bottom:1rem">
+      <label style="display:block; margin-bottom:.25rem; color:var(--muted); font-size:.8125rem">Confirm Password</label>
+      <input class="form-control" type="password" name="confirm_password" required style="width:100%">
+    </div>
+
+    <div id="modal-result" style="margin-bottom:.5rem"></div>
+
+    <div style="display:flex; gap:.5rem; justify-content:flex-end">
+      <button type="button" class="btn btn-ghost btn-sm"
+              onclick="document.getElementById('user-modal').close()">Cancel</button>
+      <button type="submit" class="btn btn-primary btn-sm">Create</button>
+    </div>
+  </form>
+
+  {% else %}
+  <form hx-post="/admin/users/{{ profile.id }}/update-info-ui"
+        hx-target="#user-table"
+        hx-on::after-request="if(event.detail.successful) document.getElementById('user-modal').close()">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div style="margin-bottom:.75rem">
+      <label style="display:block; margin-bottom:.25rem; color:var(--muted); font-size:.8125rem">Username</label>
+      <input class="form-control" name="username" value="{{ profile.username }}" required style="width:100%">
+    </div>
+    <div style="margin-bottom:1rem">
+      <label style="display:block; margin-bottom:.25rem; color:var(--muted); font-size:.8125rem">Role</label>
+      <select class="form-control" name="role" style="width:100%">
+        {% for r in ('viewer', 'operator', 'admin') %}
+        <option value="{{ r }}" {% if profile.role == r %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div id="modal-result" style="margin-bottom:.5rem"></div>
+
+    <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-bottom:1.25rem">
+      <button type="button" class="btn btn-ghost btn-sm"
+              onclick="document.getElementById('user-modal').close()">Cancel</button>
+      <button type="submit" class="btn btn-primary btn-sm">Save</button>
+    </div>
+  </form>
+
+  <details style="border-top:1px solid var(--border); padding-top:.75rem">
+    <summary style="cursor:pointer; color:var(--muted); font-size:.875rem; margin-bottom:.75rem">
+      Change Password
+    </summary>
+    <form hx-post="/admin/users/{{ profile.id }}/password-ui"
+          hx-target="#pw-modal-result">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div style="margin-bottom:.5rem">
+        <input class="form-control" type="password" name="new_password"
+               placeholder="New password (min 8)" style="width:100%">
+      </div>
+      <div style="margin-bottom:.5rem">
+        <input class="form-control" type="password" name="confirm_password"
+               placeholder="Confirm password" style="width:100%">
+      </div>
+      <div id="pw-modal-result" style="margin-bottom:.5rem"></div>
+      <div style="display:flex; justify-content:flex-end">
+        <button type="submit" class="btn btn-primary btn-sm">Change Password</button>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+</dialog>
+<script>
+  document.getElementById('user-modal').showModal();
+</script>

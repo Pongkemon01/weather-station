@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     firmware_keep_n: int = 3
     slot_len_sec: int = 43200           # 12 h; must match device upload cadence
     max_firmware_size_bytes: int = 491520  # 480 KB — STM32L476RG app Flash partition
+    # Optional Ed25519 signing key (PEM). When set, upload_firmware writes a
+    # .sig file alongside the .bin. Leave empty to disable (S10-4 optional).
+    signing_private_key_path: str = ""
 
 
 settings = Settings()

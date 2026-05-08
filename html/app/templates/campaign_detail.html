@@ -1,31 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Campaign v{{ campaign.version }} — IoT Admin{% endblock %}
+{% block page_title %}Campaign #{{ campaign.id }} — v{{ campaign.version }}{% endblock %}
+{% block page_sub %}
+<div class="topbar-sub">
+  <span class="badge badge-{{ campaign.status }}">{{ campaign.status | replace("_", " ") }}</span>
+</div>
+{% endblock %}
 {% block content %}
-<h1>
-  Campaign #{{ campaign.id }} — v{{ campaign.version }}
-  <span class="badge badge-{{ campaign.status }}" style="font-size:.9rem;margin-left:.5rem">
-    {{ campaign.status | replace("_", " ") }}
-  </span>
-</h1>
 
-<a href="/admin/campaigns" class="btn btn-ghost btn-sm" style="margin-bottom:1rem">&larr; Back to Campaigns</a>
+<a href="/admin/campaigns" class="btn btn-ghost btn-sm" style="margin-bottom:1.25rem">&larr; Back to Campaigns</a>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
   <div class="card">
-    <h2 style="margin-top:0">Firmware</h2>
-    <table style="box-shadow:none">
-      <tr><th>Version</th><td>v{{ campaign.version }}</td></tr>
-      <tr><th>Size</th><td>{{ "%.1f" % (campaign.firmware_size / 1024) }} KB</td></tr>
-      <tr><th>SHA-256</th><td><code style="font-size:.75rem;word-break:break-all">{{ campaign.firmware_sha256 }}</code></td></tr>
-      <tr><th>Slot length</th><td>{{ campaign.slot_len_sec }}s ({{ campaign.slot_len_sec // 3600 }}h)</td></tr>
-      {% if campaign.rollout_window_days %}
-      <tr><th>Rollout window</th><td>{{ campaign.rollout_window_days }} days</td></tr>
-      {% endif %}
-    </table>
+    <div class="card-header"><div class="card-title">Firmware</div></div>
+    <div class="table-wrap">
+      <table style="border-radius:0;border:none">
+        <tr><th>Version</th><td>v{{ campaign.version }}</td></tr>
+        <tr><th>Size</th><td>{{ "%.1f" % (campaign.firmware_size / 1024) }} KB</td></tr>
+        <tr><th>SHA-256</th><td><code style="font-size:.72rem;word-break:break-all">{{ campaign.firmware_sha256 }}</code></td></tr>
+        <tr><th>Slot length</th><td>{{ campaign.slot_len_sec }}s ({{ campaign.slot_len_sec // 3600 }}h)</td></tr>
+        {% if campaign.rollout_window_days %}
+        <tr><th>Rollout window</th><td>{{ campaign.rollout_window_days }} days</td></tr>
+        {% endif %}
+      </table>
+    </div>
   </div>
 
   <div class="card">
-    <h2 style="margin-top:0">Live Progress</h2>
+    <div class="card-header"><div class="card-title">Live Progress</div></div>
     <div id="campaign-progress"
          hx-get="/admin/campaign/{{ campaign_id }}/progress"
          hx-trigger="load, every 15s"
@@ -37,7 +39,7 @@
 
 {% if campaign.status in ('in_progress', 'paused', 'draft') %}
 <div class="card">
-  <h2 style="margin-top:0">Actions</h2>
+  <div class="card-header"><div class="card-title">Actions</div></div>
   <div style="display:flex;gap:.5rem;flex-wrap:wrap">
     {% if campaign.status == 'in_progress' %}
     <button class="btn btn-warning"
@@ -62,8 +64,8 @@
 
 {% if campaign.target_cohort_ids %}
 <div class="card">
-  <h2 style="margin-top:0">Target Cohort ({{ campaign.target_cohort_ids | length }} devices)</h2>
-  <p style="font-size:.85rem;color:#555">{{ campaign.target_cohort_ids | join(', ') }}</p>
+  <div class="card-header"><div class="card-title">Target Cohort ({{ campaign.target_cohort_ids | length }} devices)</div></div>
+  <p style="font-size:.85rem;color:var(--muted)">{{ campaign.target_cohort_ids | join(', ') }}</p>
 </div>
 {% endif %}
 {% endblock %}

@@ -351,10 +351,61 @@ From §1 (Prometheus + Loki + Grafana). Deployable independent of earlier phases
 
 ## Phase 10 — CI/CD & Hardening (Optional, Post-v1)
 
-- [ ] S10-1 GitHub Actions: lint (ruff) + unit tests (pytest) on PR; deploy workflow on `main` push
-- [ ] S10-2 Blue/green: two systemd services on different ports; Nginx upstream swap + health-check gate
-- [ ] S10-3 Automated PostgreSQL backups to off-site bucket; weekly restore-test
-- [ ] S10-4 Ed25519 firmware signing (§3.2 Phase 5 note); bootloader verification; rotate signing key annually
+- [x] S10-1 GitHub Actions: lint (ruff) + unit tests (pytest) on PR; deploy workflow on `main` push — **2026-05-07: `.github/workflows/ci.yml` (ruff + pytest on non-main push/PR) + `.github/workflows/deploy.yml` (SSH deploy on main push via `DEPLOY_SSH_KEY` secret)** ✓
+- [x] S10-2 Blue/green: two systemd services on different ports; Nginx upstream swap + health-check gate — **2026-05-07: `systemd/iot-server-blue.service` (port 8000) + `systemd/iot-server-green.service` (port 8001); `nginx/iot_upstream_blue.conf` + `nginx/iot_upstream_green.conf` (upstream templates managed by swap script); `scripts/blue_green_deploy.sh` (health-check + nginx reload + slot tracking in `etc/active_slot`); `nginx/iot_server.conf` upstream block moved to `iot_upstream.conf`. One-time server setup documented in script header.** ✓
+- [x] S10-3 Automated PostgreSQL backups to off-site bucket; weekly restore-test — **2026-05-07: `scripts/backup_db.sh` (pg_dump → gzip → `html/backups/`, 14-day retention); `scripts/restore_test.sh` (restore latest backup to temp DB, verify row counts, drop); `systemd/backup-db.{service,timer}` (daily 02:00 UTC); `systemd/restore-test.{service,timer}` (weekly Sunday 03:00 UTC). Install: copy 4 units to `/etc/systemd/system/`, `systemctl daemon-reload && systemctl enable --now backup-db.timer restore-test.timer`** ✓
+- [x] S10-4 Ed25519 firmware signing (§3.2 Phase 5 note); bootloader verification; rotate signing key annually — **2026-05-07: `scripts/generate_signing_key.sh` generates Ed25519 key pair (private + PEM public + 32-byte hex for C array); server signs firmware at upload when `SIGNING_PRIVATE_KEY_PATH` set in `iot.env` (writes `v{n}.sig`, returns `firmware_ed25519_sig` in response); `cryptography>=43` added to requirements. Bootloader signature verification (embedding 32-byte public key constant + verifying before Flash programming) is a future firmware phase — see `OTA_Firmware_Architecture.md §9`.** ✓
+
+---
+
+## Phase 11 — Sensor Data Browse UI
+
+Admin page to browse stored `weather_records` with optional filtering by region, station, date range, and BUS value.
+
+- [x] S11-1 `app/db/queries.py`: add two query helpers with identical filter signatures:
+  - `list_weather_records(conn, *, region_id=None, station_id=None, date_from=None, date_to=None, bus_min=None, bus_max=None, limit=50, offset=0) -> list[asyncpg.Record]`
+    - Joins `weather_records wr` with `devices d ON d.id = wr.device_id`.
+    - Returns columns: `wr.time`, `d.region_id`, `d.station_id`, `wr.temperature`, `wr.humidity`, `wr.pressure`, `wr.light_par`, `wr.rainfall`, `wr.dew_point`, `wr.bus_value`.
+    - Applies filters only when the corresponding argument is not `None`: `d.region_id = $N`, `d.station_id = $N`, `wr.time >= $N` (date_from), `wr.time < $N + interval '1 day'` (date_to), `wr.bus_value >= $N` (bus_min), `wr.bus_value <= $N` (bus_max).
+    - Orders `wr.time DESC, wr.device_id ASC`; applies `LIMIT $N OFFSET $N`.
+    - Builds the WHERE clause dynamically by appending `AND <condition>` fragments and collecting parameter values in order — **no string interpolation of user input**.
+  - `count_weather_records(conn, *, region_id=None, station_id=None, date_from=None, date_to=None, bus_min=None, bus_max=None) -> int`
+    - Same join + WHERE logic as `list_weather_records`; returns `COUNT(*)`.
+
+- [x] S11-2 `app/routers/ui.py`: add two routes:
+  - `GET /admin/sensor-data` — full page. Requires viewer+ role (via `_get_user`). Reads filter query params (`region_id: int | None`, `station_id: int | None`, `date_from: str | None`, `date_to: str | None`, `bus_min: float | None`, `bus_max: float | None`, `page: int = 1`). Renders `sensor_data.html` with `_ctx` plus the current filter values for form pre-fill.
+  - `GET /admin/sensor-data/table` — HTMX partial. Same auth check. Accepts same filter query params + `page`. Calls `list_weather_records` and `count_weather_records` with `limit=_PAGE_SIZE`, `offset=(page-1)*_PAGE_SIZE`. Renders `partials/sensor_data_table.html` with `records`, `page`, `total_pages`, and the active filter values (needed for pagination links to preserve filters).
+
+- [x] S11-3 `app/templates/sensor_data.html`: full-page template extending `base.html`.
+  - **Filter form**: `<form>` with `method="get"` pointing to `/admin/sensor-data/table`; `hx-get="/admin/sensor-data/table"`, `hx-target="#sensor-table-wrap"`, `hx-trigger="submit"`, `hx-push-url="false"`. Fields:
+    - Region ID — `<input type="number" name="region_id">`, pre-filled from context.
+    - Station ID — `<input type="number" name="station_id">`.
+    - Date from — `<input type="date" name="date_from">` (default: today − 7 days rendered server-side).
+    - Date to — `<input type="date" name="date_to">`.
+    - BUS min — `<input type="number" step="0.01" name="bus_min">`.
+    - BUS max — `<input type="number" step="0.01" name="bus_max">`.
+    - Submit button + "Clear" link (`href="/admin/sensor-data"`).
+  - **Table container**: `<div id="sensor-table-wrap">` loaded immediately on page load via `hx-get="/admin/sensor-data/table" hx-trigger="load"` carrying the same initial filter params via `hx-vals`.
+
+- [x] S11-4 `app/templates/partials/sensor_data_table.html`: HTMX fragment.
+  - Table with columns: Time (UTC), Region, Station, Temp (°C), Humidity (%), Pressure (kPa), Light (µmol/s·m²), Rainfall (mm/hr), Dew Point (°C), BUS.
+  - All float fields formatted to 2 decimal places via Jinja2 `"%.2f"|format` filter.
+  - Empty-state row (`<tr><td colspan="10">No records match the current filters.</td></tr>`) when `records` is empty.
+  - Pagination bar below the table: prev/next links that preserve all active filter query params in the `href` and set `hx-get` to `/admin/sensor-data/table` with the new page number and same filters via `hx-vals`.
+
+- [x] S11-5 `app/templates/base.html`: add "Sensor Data" nav item in the sidebar between Devices and Campaigns:
+  ```html
+  <a href="/admin/sensor-data" class="nav-item {% if '/sensor-data' in request.url.path %}active{% endif %}">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M3 3h18v4H3zM3 11h18v4H3zM3 19h18v4H3z"/>
+    </svg>
+    Sensor Data
+  </a>
+  ```
+
+- [x] S11-6 Verification (manual): deploy to server, log in as viewer; confirm page loads, default date range pre-fills to today − 7 days, table populates; apply each filter individually and confirm row set narrows; apply combination and confirm intersection; test empty result returns no-records message, not an error — **2026-05-07: all checks pass on robin-gpu.cpe.ku.ac.th; fix applied: `::date` cast in `_weather_filter()` for asyncpg type inference on date params** ✓
+
+- [x] S11-7 Verification (automated): `pytest server_test/tests/test_sensor_data.py` — T6-series (10 tests; see `Server_Test_Plan.md`) — **2026-05-07: 10/10 pass on robin-gpu.cpe.ku.ac.th (Python 3.13, pytest 9.0.3)** ✓
 
 ---
 

@@ -24,7 +24,7 @@
       <td style="font-size:.82rem">
         {% if c.rollout_start %}
           {{ c.rollout_window_days }}d window<br>
-          <span style="color:#888">{{ c.rollout_start.strftime('%Y-%m-%d') }}</span>
+          <span style="color:var(--muted)">{{ c.rollout_start.strftime('%Y-%m-%d') }}</span>
         {% else %}—{% endif %}
       </td>
       <td><code style="font-size:.75rem">{{ c.firmware_sha256[:16] }}…</code></td>
@@ -36,7 +36,7 @@
                 hx-swap="innerHTML"
                 style="display:inline">
             <input type="number" name="rollout_window_days" value="10" min="1" max="30"
-                   style="width:48px;padding:.15rem .3rem;border:1px solid #d1d5db;border-radius:3px;font-size:.8rem">d
+                   style="width:48px;padding:.15rem .3rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;font-size:.8rem;color:var(--text)">d
             <button type="submit" class="btn btn-success btn-sm">Start</button>
           </form>
           <button class="btn btn-danger btn-sm"
@@ -75,7 +75,7 @@
   </tbody>
 </table>
 {% else %}
-<div class="card" style="text-align:center;color:#888;padding:2rem">
+<div style="text-align:center;color:var(--muted);padding:2.5rem">
   No campaigns yet. Upload a firmware binary above to create one.
 </div>
 {% endif %}

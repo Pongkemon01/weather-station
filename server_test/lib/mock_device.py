@@ -1,6 +1,7 @@
 """MockDevice: simulates the A7670E firmware upload + OTA poll/download protocol."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from dataclasses import dataclass, field
@@ -10,6 +11,9 @@ import httpx
 
 from .crc32 import crc32_mpeg2
 from .packed import Sample, encode
+
+# Mirrors firmware OTA_JITTER_MAX_SEC; used by apply_jitter in ota_download_all.
+OTA_JITTER_MAX_SEC = 1800
 
 _META_RE = re.compile(
     r"V\.(\d+):L\.(\d+):H\.([0-9a-f]{64})(?::W\.(\d+))?"
@@ -104,7 +108,11 @@ class MockDevice:
         expected_size: int,
         expected_sha256: str,
         chunk_size: int = 512,
+        apply_jitter: bool = False,
     ) -> bytes:
+        if apply_jitter:
+            delay = crc32_mpeg2(self.device_id.encode()) % OTA_JITTER_MAX_SEC
+            await asyncio.sleep(delay)
         buf = b""
         offset = 0
         while offset < expected_size:

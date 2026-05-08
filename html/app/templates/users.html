@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Users — IoT Admin{% endblock %}
+{% block page_title %}Users{% endblock %}
+{% block page_sub %}<div class="topbar-sub">Manage admin accounts</div>{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h1 style="margin:0">Users</h1>
+    <button class="btn btn-primary btn-sm"
+            hx-get="/admin/users/new-modal"
+            hx-target="#modal">+ New User</button>
+  </div>
+
+  {% if request.query_params.get('created') %}
+  <div class="alert alert-success" style="margin-bottom:.75rem">User created successfully.</div>
+  {% endif %}
+
+  <div id="form-result"></div>
+
+  <div class="table-wrap">
+    <table id="user-table">
+      {% include "partials/user_table.html" %}
+    </table>
+  </div>
+</div>
+
+<div id="modal"></div>
+{% endblock %}

@@ -13,6 +13,7 @@ Environment (.env file, gitignored):
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import asyncpg
@@ -39,6 +40,8 @@ ADMIN_PASS   = os.getenv("ADMIN_PASS", "")
 
 # Region reserved for all integration test devices — never a real station.
 TEST_REGION = 999
+# Region reserved for sensor-data browse tests.
+SEED_REGION = 998
 
 
 def _need(name: str, val: str) -> str:
@@ -232,3 +235,69 @@ async def campaign_cleanup(db):
     )
     yield db
     await _purge_campaigns_above(db, pre_max)
+
+
+# ── Sensor data seed (Phase 11 T6 tests) ─────────────────────────────────────
+
+@pytest_asyncio.fixture
+async def sensor_data_seed(db):
+    """Seed 60 weather records for SEED_REGION=998, station=1 across 3 calendar days.
+
+    Yields a dict with keys: device_id, day1, day2, day3 (ISO date strings).
+    bus_value spans −5.0 → +15.0 across 60 rows (20 per day).
+    """
+    from datetime import date
+
+    today = date.today()
+    day3 = today
+    day2 = today - timedelta(days=1)
+    day1 = today - timedelta(days=2)
+
+    device_id = await db.fetchval(
+        """
+        INSERT INTO devices (region_id, station_id, last_seen)
+        VALUES ($1, $2, now())
+        ON CONFLICT (region_id, station_id) DO UPDATE SET last_seen = now()
+        RETURNING id
+        """,
+        SEED_REGION, 1,
+    )
+
+    records = []
+    days = [day1, day2, day3]
+    for i in range(60):
+        d = days[i // 20]
+        bus = round(-5.0 + i * (20.0 / 59.0), 4)
+        ts = datetime(d.year, d.month, d.day, 12, 0, 0, tzinfo=timezone.utc) + timedelta(seconds=i * 60)
+        records.append((
+            ts, device_id,
+            round(20.0 + i * 0.1, 2),
+            round(60.0 + i * 0.2, 2),
+            101.0,
+            500 + i,
+            0.0,
+            15.0,
+            bus,
+        ))
+
+    await db.executemany(
+        """
+        INSERT INTO weather_records
+            (time, device_id, temperature, humidity, pressure,
+             light_par, rainfall, dew_point, bus_value)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """,
+        records,
+    )
+
+    yield {
+        "device_id": device_id,
+        "day1": day1.isoformat(),
+        "day2": day2.isoformat(),
+        "day3": day3.isoformat(),
+    }
+
+    await db.execute("DELETE FROM weather_records WHERE device_id = $1", device_id)
+    await db.execute(
+        "DELETE FROM devices WHERE region_id = $1 AND station_id = 1", SEED_REGION
+    )

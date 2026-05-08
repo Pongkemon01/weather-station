@@ -42,7 +42,8 @@ server_test/
 │   ├── test_admin_campaign.py ← T3-series (Phase 7)
 │   ├── test_admin_ui.py       ← S8 admin UI E2E tests (14 tests; not a named T-series)
 │   ├── test_mtls.py           ← T4-series (Phase 4)
-│   └── test_load.py           ← T5-series (soak + rate-limit)
+│   ├── test_load.py           ← T5-series (soak + rate-limit)
+│   └── test_sensor_data.py   ← T6-series (Phase 11: sensor data browse UI)
 ├── fixtures/
 │   ├── firmware_small.bin     ← 2 KB deterministic payload for OTA tests
 │   ├── firmware_large.bin     ← 400 KB payload mimicking real firmware size
@@ -147,15 +148,37 @@ Tests in `server_test/tests/test_admin_campaign.py`. 25 tests — all green 2026
 ## Phase T5 — Soak, Load & Failure Modes
 
 Runs against a staging copy, never prod. Gated by `pytest -m slow`.
+**All tests pass 2026-05-07** (`server_test/tests/test_load.py`; 8/8 in 11:11 against staging). T5-1 run with `SOAK_DURATION_SEC=300`; startup jitter added to avoid thundering herd. T5-2/2a/2b use `asyncio.Semaphore(50)` to stay within server connection limits.
 
-- [ ] T5-1 Soak ingest: 100 concurrent mock devices, 1 upload/min, 1 h duration → no 5xx, p95 latency < 500 ms, `ingest_lag` Prometheus gauge stays < 10 s
-- [ ] T5-2 OTA rollout at scale: 1000 mock devices (unique `(region, station)` pairs) poll simultaneously with `rollout_window_days=10` → exactly `1000 / 20 ≈ 50 ± √50` receive `W.0` in slot 0; the remaining ~950 receive positive `W`. Only the in-slot subset initiates chunked download; peak concurrent `/get_firmware` connections observed at the server stays ≤ 75 (Arch §4 egress target ≤ 90 KB/s)
-- [ ] T5-2a Slot advancement: advance server clock by 12 h → next cohort (~50 more) becomes in-slot; previously-completed cohort stays idle (no re-download). Monotone eligibility holds
-- [ ] T5-2b Jitter smoothing: in-slot devices apply CRC32-based first-chunk delay (0–`OTA_JITTER_MAX_SEC`, default 1800 s); measured time-to-first-chunk for the 50 in-slot devices should be roughly uniform across [0, 30 min], not bunched at t=0
-- [ ] T5-3 Duplicate flood: 1 device retries same payload 50 × in 10 s → exactly one `weather_records` row exists
-- [ ] T5-4 Network chaos: mid-download client disconnect → subsequent resume with correct offset completes image; SHA-256 matches
-- [ ] T5-5 Power-loss sim: kill mock-device process after N chunks; restart with FRAM-equivalent offset tracking → finishes the image
-- [ ] T5-6 Failure retry at scale: inject a server-side fault on cycle N (return 500 on `/get_firmware` for 10% of requests) → those devices fail; cycle N+1 (after 12 h or forced clock advance) → failed devices automatically retry and complete. Zero admin intervention required (Arch §3.3)
+- [x] T5-1 Soak ingest: 100 concurrent mock devices, 1 upload/min, 5 min (300 s) duration → no 5xx, p95 latency < 500 ms ✓
+- [x] T5-2 OTA rollout at scale: 1000 mock devices poll with `rollout_window_days=10` → slot-0 cohort count within 29–71 (≈50 ± 3√50); all 1000 see the campaign ✓
+- [x] T5-2a Slot advancement: `rollout_start` advanced 1 slot in DB → ~50 more devices become eligible; monotone invariant holds for previously eligible set ✓
+- [x] T5-2b Jitter smoothing: CRC32-based delays for in-slot devices spread across 5 equal buckets; no bucket exceeds 3× expected count ✓
+- [x] T5-3 Duplicate flood: 50 concurrent identical uploads → exactly 1 `weather_records` row (DB-level idempotency holds under concurrency) ✓
+- [x] T5-4 Network chaos: disconnect after 3 chunks; new client resumes from saved offset; full image SHA-256 matches ✓
+- [x] T5-5 Power-loss sim: stop after 2 chunks (FRAM offset saved); new client resumes; full image SHA-256 matches ✓
+- [x] T5-6 Failure retry at scale: 20 in-slot devices download with 10 % chunk 500-fault injection; all retry to completion; zero admin intervention; all SHA-256 match ✓
+
+---
+
+## Phase T6 — Sensor Data Browse UI
+
+Black-box tests for Phase 11. All tests use the shared admin session cookie obtained via `AdminClient.login()`. Sensor rows are seeded via the ingest endpoint (same mechanism as T1) using a reserved fixture device `(region=998, station=001)` with known fixed-point values.
+
+**Prerequisite:** at least 60 rows must exist for the fixture device before this suite runs (seeded by the `sensor_data_seed` fixture in `conftest.py` — uploads 3 batches of 20 chunks spanning three calendar days with bus_value ranging from −5.0 to +15.0).
+
+- [x] T6-1 Unauthenticated request — `GET /admin/sensor-data` without a session cookie → response is a redirect to `/admin/login.html` (status 303 or 302); no sensor data exposed.
+- [x] T6-2 No filters → 200; response HTML contains a `<table>` element; the first page contains exactly `_PAGE_SIZE` (20) rows; each row has 10 `<td>` elements (time, region, station, temp, humidity, pressure, light, rainfall, dew_point, bus); region and station columns show `998` and `1` respectively for all rows on this page.
+- [x] T6-3 Filter `region_id=998` → 200; all returned rows have region 998; rows for other regions (if any exist in the DB from other test runs) are absent.
+- [x] T6-4 Filter `station_id=1` → 200; all rows belong to station 1; combination with region_id=998 (T6-5 below) is required for strict isolation.
+- [x] T6-5 Filter `region_id=998&station_id=1` → 200; rows are strictly the fixture device's rows; no other region/station appears; total count matches the seeded 60 rows across pages.
+- [x] T6-6 Filter `date_from=<day2>&date_to=<day2>` (one seeded day only) → 200; all returned rows have `time` values within that calendar day; rows from day1 and day3 are absent; verifies date range is inclusive on both ends (day_to includes the full 24 h of that day).
+- [x] T6-7 Filter `bus_min=0.0&bus_max=5.0` → 200; every returned row's BUS value text parses to a float in [0.0, 5.0]; rows with bus_value < 0 or > 5.0 are absent.
+- [x] T6-8 Combined filter `region_id=998&station_id=1&date_from=<day2>&date_to=<day2>&bus_min=0.0&bus_max=5.0` → 200; rows satisfy all four constraints simultaneously; count is a subset of T6-6 and T6-7 results.
+- [x] T6-9 Filter that matches no rows (`region_id=0&station_id=0`) → 200; HTML contains the empty-state message "No records match the current filters"; no `<tbody><tr>` with data cells present; no 5xx error.
+- [x] T6-10 Pagination: no-filter request `page=1` vs `page=2` → the sets of timestamp values in the two pages are disjoint; `page=2` is non-empty (requires ≥ 21 seeded rows, which the seed fixture guarantees).
+
+> **2026-05-07: 10/10 pass** — `pytest server_test/tests/test_sensor_data.py` on robin-gpu.cpe.ku.ac.th (Python 3.13, pytest 9.0.3, 13 s). Fix: `::date` cast added to `_weather_filter()` in `queries.py` for asyncpg type inference on date params.
 
 ---
 

@@ -17,7 +17,10 @@ tar czf "$TMP" \
     --exclude='*.pyc' \
     -C "$(dirname "$HTML_DIR")" \
     "$(basename "$HTML_DIR")/app" \
-    "$(basename "$HTML_DIR")/requirements.txt"
+    "$(basename "$HTML_DIR")/requirements.txt" \
+    "$(basename "$HTML_DIR")/scripts" \
+    "$(basename "$HTML_DIR")/nginx" \
+    "$(basename "$HTML_DIR")/systemd"
 
 echo "==> Uploading to $REMOTE"
 scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$TMP" "$REMOTE":~/iot_deploy.tar.gz

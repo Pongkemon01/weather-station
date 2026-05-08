@@ -1,0 +1,10 @@
+[Unit]
+Description=IoT Server — Weekly PostgreSQL restore test timer
+
+[Timer]
+OnCalendar=Sun *-*-* 03:00:00 UTC
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

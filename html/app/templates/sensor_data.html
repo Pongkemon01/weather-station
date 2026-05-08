@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Sensor Data — IoT Admin{% endblock %}
+{% block page_title %}Sensor Data{% endblock %}
+{% block page_sub %}<div class="topbar-sub">Browse weather records</div>{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-title">Filter Records</div>
+    <a href="/admin/sensor-data" class="btn btn-ghost btn-sm">Clear filters</a>
+  </div>
+  <form hx-get="/admin/sensor-data/table"
+        hx-target="#sensor-table-wrap"
+        hx-trigger="submit"
+        hx-push-url="false">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem;align-items:end;margin-bottom:.75rem">
+      <div class="form-group" style="margin:0">
+        <label>Region ID</label>
+        <input type="number" name="region_id"
+               value="{{ region_id if region_id is not none else '' }}"
+               placeholder="any">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Station ID</label>
+        <input type="number" name="station_id"
+               value="{{ station_id if station_id is not none else '' }}"
+               placeholder="any">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Date from</label>
+        <input type="date" name="date_from"
+               value="{{ date_from or default_date_from }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Date to</label>
+        <input type="date" name="date_to"
+               value="{{ date_to or '' }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>BUS min</label>
+        <input type="number" step="0.01" name="bus_min"
+               value="{{ bus_min if bus_min is not none else '' }}"
+               placeholder="any">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>BUS max</label>
+        <input type="number" step="0.01" name="bus_max"
+               value="{{ bus_max if bus_max is not none else '' }}"
+               placeholder="any">
+      </div>
+      <div>
+        <button type="submit" class="btn btn-primary">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+          </svg>
+          Filter
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="table-wrap">
+  <div id="sensor-table-wrap"
+       hx-get="/admin/sensor-data/table?{{ initial_qs }}"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div style="padding:3rem;text-align:center;color:var(--muted)">
+      <span class="spinner"></span> Loading…
+    </div>
+  </div>
+</div>
+{% endblock %}

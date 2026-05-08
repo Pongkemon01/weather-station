@@ -2,6 +2,7 @@
 firmware/
 logs/
 pki/
+backups/
 etc/iot.env
 
 # Python

@@ -1,4 +1,4 @@
-<table style="width:auto;margin-bottom:.75rem;box-shadow:none">
+<table style="width:auto;margin-bottom:.75rem;box-shadow:none;border:none">
   <tr><th>Status</th>
       <td><span class="badge badge-{{ campaign.status }}">{{ campaign.status | replace("_", " ") }}</span></td></tr>
   <tr><th>Devices completed</th>
@@ -15,12 +15,12 @@
   {% endif %}
 </table>
 {% if campaign.status in ('in_progress', 'paused') and eligible > 0 %}
-<div style="background:#e5e7eb;border-radius:4px;height:14px;width:280px;overflow:hidden;margin-bottom:.4rem">
-  <div style="background:#16a34a;height:100%;width:{{ [[(completed * 100 // eligible), 0]|max, 100]|min }}%"></div>
+<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;height:12px;width:100%;max-width:280px;overflow:hidden;margin-bottom:.5rem">
+  <div style="background:var(--success);height:100%;width:{{ [[(completed * 100 // eligible), 0]|max, 100]|min }}%;transition:width .4s"></div>
 </div>
-<small style="color:#555">{{ "%.1f" % ((completed / eligible) * 100) }}% complete (auto-refreshes)</small>
+<small style="color:var(--muted)">{{ "%.1f" % ((completed / eligible) * 100) }}% complete (auto-refreshes)</small>
 {% elif campaign.status in ('completed', 'cancelled') %}
-<small style="color:#888">Rollout finished.</small>
+<small style="color:var(--muted)">Rollout finished.</small>
 {% else %}
-<small style="color:#888">Waiting for first device contact.</small>
+<small style="color:var(--muted)">Waiting for first device contact.</small>
 {% endif %}

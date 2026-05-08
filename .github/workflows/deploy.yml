@@ -1,0 +1,21 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy.key
+          chmod 600 ~/.ssh/deploy.key
+
+      - name: Deploy to server
+        run: bash html/scripts/deploy.sh ~/.ssh/deploy.key

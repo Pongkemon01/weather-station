@@ -16,12 +16,14 @@ _ROLE_LEVELS: dict[str, int] = {"viewer": 0, "operator": 1, "admin": 2}
 _bearer = HTTPBearer(auto_error=False)
 
 
-def create_token(sub: str, role: str) -> str:
-    payload = {
+def create_token(sub: str, role: str, sub_id: int | None = None) -> str:
+    payload: dict = {
         "sub": sub,
         "role": role,
         "exp": datetime.now(UTC) + timedelta(hours=_LIFETIME_H),
     }
+    if sub_id is not None:
+        payload["sub_id"] = sub_id
     return jwt.encode(payload, settings.jwt_secret, algorithm=_ALGORITHM)
 
 
@@ -32,6 +34,10 @@ def verify_token(token: str) -> dict:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+
+def hash_password(plain: str) -> str:
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt(rounds=12)).decode()
 
 
 def check_password(plain: str, hashed: str) -> bool:

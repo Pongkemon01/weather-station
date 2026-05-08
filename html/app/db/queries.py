@@ -94,6 +94,93 @@ async def get_admin_user(conn: asyncpg.Connection, username: str):
     )
 
 
+# ---------------------------------------------------------------------------
+# Phase UM1: user management query layer
+# ---------------------------------------------------------------------------
+
+async def list_admin_users(conn: asyncpg.Connection) -> list:
+    """Return all admin_users ordered by role priority then creation time."""
+    return await conn.fetch(
+        """
+        SELECT id, username, role, created_at
+        FROM admin_users
+        ORDER BY CASE role WHEN 'admin' THEN 0 WHEN 'operator' THEN 1 ELSE 2 END, created_at
+        """,
+    )
+
+
+async def get_admin_user_by_id(conn: asyncpg.Connection, user_id: int):
+    """Return admin_users row by id (includes password_hash), or None."""
+    return await conn.fetchrow(
+        "SELECT id, username, password_hash, role, created_at FROM admin_users WHERE id = $1",
+        user_id,
+    )
+
+
+async def username_exists(
+    conn: asyncpg.Connection, username: str, exclude_id: int | None = None
+) -> bool:
+    """Return True if username is taken by any user other than exclude_id."""
+    return await conn.fetchval(
+        "SELECT EXISTS(SELECT 1 FROM admin_users WHERE username = $1 AND id != $2)",
+        username,
+        exclude_id if exclude_id is not None else -1,
+    )
+
+
+async def create_admin_user(
+    conn: asyncpg.Connection, username: str, password_hash: str, role: str
+) -> int | None:
+    """Insert a new user. Returns new id, or None on username conflict."""
+    row = await conn.fetchrow(
+        """
+        INSERT INTO admin_users (username, password_hash, role)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (username) DO NOTHING
+        RETURNING id
+        """,
+        username,
+        password_hash,
+        role,
+    )
+    return row["id"] if row else None
+
+
+async def update_admin_user_info(
+    conn: asyncpg.Connection, user_id: int, username: str, role: str
+) -> int | None:
+    """Update username and role. Returns updated id, or None if user not found.
+    Raises asyncpg.UniqueViolationError on username conflict — caller maps to 409."""
+    row = await conn.fetchrow(
+        "UPDATE admin_users SET username = $2, role = $3 WHERE id = $1 RETURNING id",
+        user_id,
+        username,
+        role,
+    )
+    return row["id"] if row else None
+
+
+async def update_admin_user_password(
+    conn: asyncpg.Connection, user_id: int, password_hash: str
+) -> bool:
+    """Update password hash. Returns True if the user existed."""
+    result = await conn.execute(
+        "UPDATE admin_users SET password_hash = $2 WHERE id = $1",
+        user_id,
+        password_hash,
+    )
+    return result == "UPDATE 1"
+
+
+async def delete_admin_user(conn: asyncpg.Connection, user_id: int) -> bool:
+    """Delete user by id. Returns True if the user existed."""
+    result = await conn.execute(
+        "DELETE FROM admin_users WHERE id = $1",
+        user_id,
+    )
+    return result == "DELETE 1"
+
+
 
 # ---------------------------------------------------------------------------
 # Phase 7: OTA campaign management
@@ -285,3 +372,85 @@ async def count_devices(conn: asyncpg.Connection) -> int:
 async def list_all_campaigns(conn: asyncpg.Connection):
     """Return all OTA campaigns ordered by version DESC."""
     return await conn.fetch("SELECT * FROM ota_campaigns ORDER BY version DESC")
+
+
+# ---------------------------------------------------------------------------
+# Phase 11: sensor data browse
+# ---------------------------------------------------------------------------
+
+def _weather_filter(region_id, station_id, date_from, date_to, bus_min, bus_max):
+    """Build (conditions_list, params_list) for weather_records queries."""
+    conditions, params = [], []
+
+    def _p(val):
+        params.append(val)
+        return f"${len(params)}"
+
+    if region_id is not None:
+        conditions.append(f"d.region_id = {_p(region_id)}")
+    if station_id is not None:
+        conditions.append(f"d.station_id = {_p(station_id)}")
+    if date_from is not None:
+        conditions.append(f"wr.time >= {_p(date_from)}::date")
+    if date_to is not None:
+        conditions.append(f"wr.time < {_p(date_to)}::date + interval '1 day'")
+    if bus_min is not None:
+        conditions.append(f"wr.bus_value >= {_p(bus_min)}")
+    if bus_max is not None:
+        conditions.append(f"wr.bus_value <= {_p(bus_max)}")
+
+    return conditions, params
+
+
+async def list_weather_records(
+    conn: asyncpg.Connection,
+    *,
+    region_id=None,
+    station_id=None,
+    date_from=None,
+    date_to=None,
+    bus_min=None,
+    bus_max=None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Return paginated weather records joined with device region/station."""
+    conditions, params = _weather_filter(region_id, station_id, date_from, date_to, bus_min, bus_max)
+    where = "WHERE " + " AND ".join(conditions) if conditions else ""
+    limit_ph = f"${len(params) + 1}"
+    offset_ph = f"${len(params) + 2}"
+    params.extend([limit, offset])
+    sql = f"""
+        SELECT wr.time, d.region_id, d.station_id,
+               wr.temperature, wr.humidity, wr.pressure,
+               wr.light_par, wr.rainfall, wr.dew_point, wr.bus_value
+        FROM weather_records wr
+        JOIN devices d ON d.id = wr.device_id
+        {where}
+        ORDER BY wr.time DESC, wr.device_id ASC
+        LIMIT {limit_ph} OFFSET {offset_ph}
+    """
+    return await conn.fetch(sql, *params)
+
+
+async def count_weather_records(
+    conn: asyncpg.Connection,
+    *,
+    region_id=None,
+    station_id=None,
+    date_from=None,
+    date_to=None,
+    bus_min=None,
+    bus_max=None,
+) -> int:
+    """Return total count of weather records matching the given filters."""
+    conditions, params = _weather_filter(region_id, station_id, date_from, date_to, bus_min, bus_max)
+    where = "WHERE " + " AND ".join(conditions) if conditions else ""
+    sql = f"""
+        SELECT COUNT(*) AS cnt
+        FROM weather_records wr
+        JOIN devices d ON d.id = wr.device_id
+        {where}
+    """
+    row = await conn.fetchrow(sql, *params)
+    return row["cnt"] or 0

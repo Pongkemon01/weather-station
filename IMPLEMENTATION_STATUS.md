@@ -127,10 +127,26 @@ Implement phases **strictly in order**. Each phase must pass all listed tests be
 | S7 | Admin OTA campaign management REST API | ✓ complete (2026-05-07) — 25/25 T3 tests pass |
 | S8 | Admin UI (HTMX + Jinja2) | ✓ complete (2026-05-07) — 14/14 admin UI E2E tests pass |
 | S9 | Observability (Prometheus, Loki, Grafana) | ✓ complete (2026-05-07) — stack deployed (Prometheus 2.53.3, Loki 3.4.2, Promtail 3.4.2, Grafana); S9-6 verified |
-| S10 | CI/CD & hardening (optional) | not started |
+| S10 | CI/CD & hardening | ✓ complete (2026-05-07) — CI/CD workflows, blue/green deploy, DB backups, Ed25519 signing |
+| T5  | Soak, load & failure-mode tests (`server_test/tests/test_load.py`) | ✓ complete (2026-05-07) — 8/8 pass in 11:11 on staging (`pytest -m slow`, `SOAK_DURATION_SEC=300`) |
+| S11 | Sensor data browse UI (HTMX + Jinja2) | ✓ complete (2026-05-07) — 10/10 T6 tests pass; `::date` cast fix applied |
+| T6  | Sensor data browse UI tests (`server_test/tests/test_sensor_data.py`) | ✓ complete (2026-05-07) — 10/10 pass in 13 s on robin-gpu.cpe.ku.ac.th |
 
 > **Deploy:** `bash html/scripts/deploy.sh` (scp-based; server has no git repo).
 > **Host:** `akp@robin-gpu.cpe.ku.ac.th` · key `~/.ssh/akrapong.key`
+
+---
+
+## User Management Phases (see `User_Management_Implementation_Plan.md` for full detail)
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| UM1 | DB query layer (`html/app/db/queries.py`) | ✓ complete (2026-05-08) — 7 functions; 15/15 unit tests pass |
+| UM2 | JSON API endpoints (`html/app/routers/admin.py`) | ✓ complete (2026-05-08) — 4 new endpoints + extend list; TUM1–TUM4 pass |
+| UM3 | HTML UI routes (`html/app/routers/ui.py`) | ✓ complete (2026-05-08) — 6 UI routes; 36/36 TUM5–TUM11 tests pass |
+| UM4 | Templates (`users.html`, `profile.html`, partials) | ✓ complete (2026-05-08) — all templates + base.html nav; verified by TUM5–TUM11 |
+| UM5 | Modal routes (HTMX fragments) | ✓ complete (2026-05-08) — `new-modal` + `edit-modal` routes + `user_form_modal.html` partial; 75/75 UM tests pass |
+| T7  | Full TUM0–TUM11 black-box suite (`server_test/tests/test_user_management.py`) | ✓ verified (2026-05-08) — **75/75 pass** in 81 s on robin-gpu.cpe.ku.ac.th |
 
 ---
 

@@ -1,0 +1,57 @@
+<table>
+  <thead>
+    <tr>
+      <th>Time (UTC)</th>
+      <th>Region</th>
+      <th>Station</th>
+      <th>Temp (°C)</th>
+      <th>Humidity (%)</th>
+      <th>Pressure (kPa)</th>
+      <th>Light (µmol/s·m²)</th>
+      <th>Rainfall (mm/hr)</th>
+      <th>Dew Point (°C)</th>
+      <th>BUS</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr>
+      <td>{{ r.time.strftime('%Y-%m-%d %H:%M') if r.time else '—' }}</td>
+      <td>{{ r.region_id }}</td>
+      <td>{{ r.station_id }}</td>
+      <td>{{ "%.2f"|format(r.temperature) if r.temperature is not none else '—' }}</td>
+      <td>{{ "%.2f"|format(r.humidity) if r.humidity is not none else '—' }}</td>
+      <td>{{ "%.2f"|format(r.pressure) if r.pressure is not none else '—' }}</td>
+      <td>{{ r.light_par if r.light_par is not none else '—' }}</td>
+      <td>{{ "%.2f"|format(r.rainfall) if r.rainfall is not none else '—' }}</td>
+      <td>{{ "%.2f"|format(r.dew_point) if r.dew_point is not none else '—' }}</td>
+      <td>{{ "%.2f"|format(r.bus_value) if r.bus_value is not none else '—' }}</td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="10" style="text-align:center;padding:2rem;color:var(--muted)">No records match the current filters.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a hx-get="/admin/sensor-data/table?page={{ page - 1 }}{% if filter_qs %}&{{ filter_qs }}{% endif %}"
+     hx-target="#sensor-table-wrap" hx-swap="innerHTML" href="#">&laquo;</a>
+  {% endif %}
+  {% for p in range(1, total_pages + 1) %}
+    {% if p == page %}
+    <span class="current">{{ p }}</span>
+    {% else %}
+    <a hx-get="/admin/sensor-data/table?page={{ p }}{% if filter_qs %}&{{ filter_qs }}{% endif %}"
+       hx-target="#sensor-table-wrap" hx-swap="innerHTML" href="#">{{ p }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if page < total_pages %}
+  <a hx-get="/admin/sensor-data/table?page={{ page + 1 }}{% if filter_qs %}&{{ filter_qs }}{% endif %}"
+     hx-target="#sensor-table-wrap" hx-swap="innerHTML" href="#">&raquo;</a>
+  {% endif %}
+  <span style="color:var(--muted);font-size:.8rem;margin-left:.5rem">Page {{ page }} of {{ total_pages }}</span>
+</div>
+{% endif %}

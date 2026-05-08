@@ -1,24 +1,101 @@
 {% extends "base.html" %}
-{% block title %}Login — IoT Admin{% endblock %}
+{% block title %}Sign In — IoT Admin{% endblock %}
 {% block content %}
-<div style="max-width:360px;margin:5rem auto">
-  <div class="card">
-    <h1 style="margin-bottom:1.25rem;text-align:center">IoT Admin</h1>
-    {% if error %}
-    <div class="alert alert-error">{{ error }}</div>
-    {% endif %}
-    <form method="post" action="/admin/login.html">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div class="form-group">
-        <label for="username">Username</label>
-        <input type="text" id="username" name="username" autofocus required>
-      </div>
-      <div class="form-group">
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" required>
-      </div>
-      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;padding:.45rem">Sign In</button>
-    </form>
+<style>
+  .login-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse 60% 50% at 20% 80%, rgba(108,99,255,.12) 0%, transparent 70%),
+      radial-gradient(ellipse 50% 40% at 80% 20%, rgba(56,189,248,.08) 0%, transparent 70%);
+    padding: 2rem;
+  }
+  .login-box {
+    width: 100%;
+    max-width: 400px;
+  }
+  .login-logo {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+  .login-logo .icon {
+    width: 52px; height: 52px;
+    background: linear-gradient(135deg, var(--accent), #a78bfa);
+    border-radius: 14px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 24px;
+    margin-bottom: .75rem;
+    box-shadow: 0 8px 24px rgba(108,99,255,.35);
+  }
+  .login-logo h1 { font-size: 1.4rem; font-weight: 700; color: var(--text); margin-bottom: .25rem; }
+  .login-logo p { font-size: .83rem; color: var(--muted); }
+
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 2rem;
+    box-shadow: 0 20px 60px rgba(0,0,0,.4);
+  }
+  .login-card .form-group input {
+    background: var(--bg);
+  }
+  .login-submit {
+    width: 100%;
+    padding: .6rem;
+    margin-top: .5rem;
+    font-size: .9rem;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background .15s, box-shadow .15s;
+  }
+  .login-submit:hover {
+    background: var(--accent-h);
+    box-shadow: 0 0 20px rgba(108,99,255,.4);
+  }
+  .login-footer {
+    text-align: center;
+    margin-top: 1.25rem;
+    font-size: .75rem;
+    color: var(--muted);
+  }
+</style>
+
+<div class="login-page">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="icon">🌦</div>
+      <h1>IoT Admin</h1>
+      <p>Weather Station Management</p>
+    </div>
+
+    <div class="login-card">
+      {% if error %}
+      <div class="alert alert-error" style="margin-bottom:1rem">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" action="/admin/login.html">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" placeholder="Enter your username" autofocus required>
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="login-submit">Sign In</button>
+      </form>
+    </div>
+
+    <div class="login-footer">Secured with mTLS &amp; JWT &middot; IoT Weather Station v1</div>
   </div>
 </div>
 {% endblock %}

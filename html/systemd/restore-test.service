@@ -1,0 +1,11 @@
+[Unit]
+Description=IoT Server — Weekly PostgreSQL restore test
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=akp
+EnvironmentFile=/home/akp/html/etc/iot.env
+ExecStart=/bin/bash /home/akp/html/scripts/restore_test.sh
+StandardOutput=journal
+StandardError=journal

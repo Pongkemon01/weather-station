@@ -17,7 +17,7 @@
     </tr>
     {% else %}
     <tr>
-      <td colspan="4" style="text-align:center;padding:2rem;color:#888">No devices registered yet.</td>
+      <td colspan="4" style="text-align:center;padding:2rem;color:var(--muted)">No devices registered yet.</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -40,6 +40,6 @@
   <a hx-get="/admin/devices/table?page={{ page + 1 }}"
      hx-target="#device-table" hx-swap="innerHTML" href="#">&raquo;</a>
   {% endif %}
-  <span style="color:#888;font-size:.8rem;margin-left:.5rem">Page {{ page }} of {{ total_pages }}</span>
+  <span style="color:var(--muted);font-size:.8rem;margin-left:.5rem">Page {{ page }} of {{ total_pages }}</span>
 </div>
 {% endif %}
