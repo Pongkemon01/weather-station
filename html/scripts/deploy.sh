@@ -28,10 +28,17 @@ rm -f "$TMP"
 
 echo "==> Extracting and restarting"
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$REMOTE" bash <<'EOF'
+set -euo pipefail
 cd ~
 tar xzf iot_deploy.tar.gz
 rm iot_deploy.tar.gz
 ~/html/.venv/bin/pip install -r ~/html/requirements.txt -q
+
+# Deploy nginx config and reload if it changed.
+sudo cp ~/html/nginx/iot_server.conf /etc/nginx/conf.d/iot_server.conf
+sudo nginx -t
+sudo systemctl reload nginx
+
 sudo systemctl restart iot-server
 sleep 2
 sudo systemctl is-active iot-server

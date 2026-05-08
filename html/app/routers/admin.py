@@ -1,8 +1,10 @@
 """Admin API routes — Phase 6: JWT authentication. Phase 7: OTA campaign management."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
+import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +15,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 import asyncpg
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.auth.jwt import check_password, create_token, hash_password, require_role
 from app.config import settings
@@ -45,10 +47,22 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 # ── Phase 7 helpers ───────────────────────────────────────────────────────────
 
+_DEVICE_ID_RE = re.compile(r"^\d{6}$")
+
+
 class StartCampaignRequest(BaseModel):
     rollout_window_days: int = Field(default=10, ge=1, le=30)
-    slot_len_sec: Optional[int] = None
+    slot_len_sec: Optional[int] = Field(default=None, ge=1)
     target_cohort_ids: Optional[list[str]] = None
+
+    @field_validator("target_cohort_ids")
+    @classmethod
+    def validate_cohort_ids(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v is not None:
+            for item in v:
+                if not _DEVICE_ID_RE.match(item):
+                    raise ValueError(f"cohort id {item!r} must be exactly 6 decimal digits")
+        return v
 
 
 async def _sweep_firmware_retention(conn: asyncpg.Connection, keep_n: int) -> None:
@@ -344,15 +358,22 @@ async def campaign_start(
     row = await _get_campaign_or_404(conn, campaign_id)
     _require_status(row, "draft")
 
-    # Integrity check (S7-5): re-hash file to catch tampering or corruption.
+    # Integrity check (S7-5): re-hash file off the event loop to avoid blocking.
     fp = Path(row["firmware_file_path"])
     if not fp.exists():
         raise HTTPException(status_code=409, detail="firmware file missing")
-    file_bytes = fp.read_bytes()
-    if len(file_bytes) != row["firmware_size"]:
-        raise HTTPException(status_code=409, detail="firmware file size mismatch")
-    if _sha256_hex(file_bytes) != row["firmware_sha256"]:
-        raise HTTPException(status_code=409, detail="firmware SHA-256 mismatch")
+
+    def _check_integrity() -> str | None:
+        data = fp.read_bytes()
+        if len(data) != row["firmware_size"]:
+            return "firmware file size mismatch"
+        if _sha256_hex(data) != row["firmware_sha256"]:
+            return "firmware SHA-256 mismatch"
+        return None
+
+    err = await asyncio.to_thread(_check_integrity)
+    if err:
+        raise HTTPException(status_code=409, detail=err)
 
     # Normalise empty cohort list → NULL so whole-fleet has one canonical form.
     cohort = body.target_cohort_ids if body.target_cohort_ids else None

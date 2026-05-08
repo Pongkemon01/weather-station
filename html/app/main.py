@@ -16,14 +16,19 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _validate_firmware_dir()
+    _validate_settings()
     await pool.init_pool()
     yield
     await pool.close_pool()
 
 
-def _validate_firmware_dir() -> None:
-    """Refuse to start if FIRMWARE_DIR is not set, not absolute, or not writable."""
+def _validate_settings() -> None:
+    """Refuse to start if critical settings are missing or insecure."""
+    if not settings.jwt_secret or len(settings.jwt_secret) < 32:
+        raise RuntimeError("JWT_SECRET must be at least 32 characters in iot.env")
+    if settings.jwt_secret == "change-me-to-a-long-random-secret":
+        raise RuntimeError("JWT_SECRET must be changed from the example value in iot.env")
+
     if not settings.firmware_dir:
         raise RuntimeError("FIRMWARE_DIR must be set in iot.env")
     resolved = Path(settings.firmware_dir).resolve(strict=False)
