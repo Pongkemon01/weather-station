@@ -174,11 +174,24 @@ extern void ucctask(void *params);
 extern void ssluploadtask(void *params);
 extern void watchdog_task(void *params);
 
-int __io_putchar(int ch)
+#ifndef __PLATFORMIO__
+#ifdef __GNUC__
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+#else
+#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
+#endif
+PUTCHAR_PROTOTYPE
 {
-    HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 0xffff);
-    return ch;
+  HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 0xFFFF);
+  return ch;
 }
+#else
+int _write(int file, char *ptr, int len)
+{
+  HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 0xFFFF);
+  return len;
+}
+#endif
 
 /* USER CODE END FunctionPrototypes */
 

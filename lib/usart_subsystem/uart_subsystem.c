@@ -336,6 +336,31 @@ void UART_Sys_ReleaseBuffer(uint8_t *pBuffer)
 }
 
 /* ══════════════════════════ ISR Callbacks ════════════════════════════════════*/
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    /* DMA stops on every error even from noise. Restart it. */
+
+    /* Locate the registered context for this peripheral */
+    UART_Ctx_t *ctx = NULL;
+    for (int i = 0; i < registered_count; i++)
+    {
+        if (uart_ctx_array[i].huart->Instance == huart->Instance)
+        {
+            ctx = &uart_ctx_array[i];
+            break;
+        }
+    }
+    if (!ctx)
+        return;
+    if (xFreeQueue == NULL)
+        return;
+
+    /* Restart DMA */
+    HAL_UARTEx_ReceiveToIdle_DMA(ctx->huart, ctx->dma_rx_buf,
+                                 UART_DMA_BUF_SIZE); /* restart DMA to avoid missing subsequent data */
+}
+
+/* -------------------------------------------------------------------------- */
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
@@ -381,6 +406,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     {
         /* Pool exhausted — data lost; advance pointer and yield */
         ctx->last_read_ptr = (uint16_t)(Size % UART_DMA_BUF_SIZE);
+        HAL_UARTEx_ReceiveToIdle_DMA(ctx->huart, ctx->dma_rx_buf,
+                                     UART_DMA_BUF_SIZE); /* restart DMA to avoid missing subsequent data */
         portYIELD_FROM_ISR(xWoken);
         return;
     }
@@ -406,6 +433,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     }
 
     ctx->last_read_ptr = (uint16_t)(Size % UART_DMA_BUF_SIZE);
+    HAL_UARTEx_ReceiveToIdle_DMA(ctx->huart, ctx->dma_rx_buf,
+                                 UART_DMA_BUF_SIZE); /* restart DMA to avoid missing subsequent data */
     portYIELD_FROM_ISR(xWoken);
 }
 

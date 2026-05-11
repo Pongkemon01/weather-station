@@ -17,7 +17,7 @@ Architecture: `OTA_Firmware_Architecture.md`
 | P2.1  | Upload migration to `AT+HTTP*` (CCH eliminated; 512 B blob, 28 rec) | ✓ 2026-04-18 | ⏳ P2.1-10..12 pending |
 | P3    | OTA manager task (8-state machine, version parse, NTP fix R-11)    | ✓ 2026-04-19 | ⏳ P3-7, P3-8 pending |
 | P3.1  | Rollout gate (`W.<sec>`) + device identity (`?id=rrrsss`)           | ✓ 2026-04-21 | ⏳ P3.1-8..10 pending |
-| P3.2  | Image size guard (`FLASH_APP_SIZE_MAX = 480 KB`)                    | ✓ 2026-04-26 (host 6/6) | ⏳ P3.2-6, P3.2-7 pending |
+| P3.2  | Image size guard (`FLASH_APP_SIZE_MAX = 480 KB`)                    | ✓ 2026-05-11 (host 6/6) | ⏳ P3.2-6, P3.2-7 pending |
 | P4    | Integration & field testing (end-to-end, power-loss, RDP1)          | — | ⏳ P4-1..P4-7 pending |
 
 Build budget (current): app 22.7 % RAM / 9.3 % Flash; bootloader 2.8 % RAM / 0.7 % Flash.
@@ -72,6 +72,7 @@ Plan: `User_Management_Implementation_Plan.md` · Test plan: `User_Management_Te
 | T6  | Sensor data browse UI       | ✓ 10/10 — 2026-05-07 |
 | T7 / TUM0–11 | User management black-box  | ✓ 75/75 — 2026-05-08 |
 | S6 / S8 unit | Admin auth (7) + admin UI E2E (14) | ✓ — 2026-05-07 |
+| P3.2 host    | OTA size guard — `ovp_parse` + `FLASH_APP_SIZE_MAX` (native gcc / WSL) | ✓ 6/6 — 2026-05-11 |
 
 ---
 

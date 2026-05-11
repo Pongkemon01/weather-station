@@ -195,7 +195,7 @@ bool modbus_read_register(uint8_t addr, uint16_t reg_num,
     bool ok = false;
 
     /* Validate address and function code */
-    if ((rx_pkt.payload[0] == addr) && (rx_pkt.payload[1] == 0x03u))
+    if ((addr == 0xFF || (rx_pkt.payload[0] == addr)) && (rx_pkt.payload[1] == 0x03u))
     {
         /*
          * BUG-M1 fix: Modbus RTU §2.5 — CRC bytes are transmitted

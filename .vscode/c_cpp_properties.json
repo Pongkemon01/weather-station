@@ -221,6 +221,7 @@
                 "CFG_TUSB_MCU=OPT_MCU_STM32L4",
                 "FW_VERSION=1",
                 "_RETARGET_LOCKING",
+                "__PLATFORMIO__",
                 "USE_HAL_DRIVER",
                 "F_CPU=80000000L",
                 ""
