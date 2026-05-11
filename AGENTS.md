@@ -1,38 +1,16 @@
-<!-- code-review-graph MCP tools -->
-## MCP Tools: code-review-graph
+# AGENTS.md
 
-**IMPORTANT: This project has a knowledge graph. ALWAYS use the
-code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
-the codebase.** The graph is faster, cheaper (fewer tokens), and gives
-you structural context (callers, dependents, test coverage) that file
-scanning cannot.
+Project context for AI coding agents.
 
-### When to use graph tools FIRST
+Read `CLAUDE.md` — it is the single source of truth for project identity, directory layout, peripheral allocation, FreeRTOS task map, mutex rules, coding standards, "must never do" rules, and per-task reading list.
 
-- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
-- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
-- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
-- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
-- **Architecture questions**: `get_architecture_overview` + `list_communities`
+Companion docs:
 
-Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+- `OTA_Firmware_Architecture.md` — as-built firmware OTA architecture (FRAM layout, state machine, bootloader, A7670 modem flow)
+- `Server_Architecture.md` — as-built FastAPI server (mTLS, OTA endpoints, slot algorithm, schema)
+- `Server_Implementation_Plan.md`, `User_Management_Implementation_Plan.md` — phase summaries
+- `Server_Test_Plan.md`, `User_Management_Test_Plan.md` — black-box verifier coverage
+- `IMPLEMENTATION_STATUS.md` — current phase status (one row per phase)
+- `https_manual.md`, `ntp_manual.md` — A7670E AT command reference (vendor)
 
-### Key Tools
-
-| Tool | Use when |
-|------|----------|
-| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
-| `get_review_context` | Need source snippets for review — token-efficient |
-| `get_impact_radius` | Understanding blast radius of a change |
-| `get_affected_flows` | Finding which execution paths are impacted |
-| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
-| `semantic_search_nodes` | Finding functions/classes by name or keyword |
-| `get_architecture_overview` | Understanding high-level codebase structure |
-| `refactor_tool` | Planning renames, finding dead code |
-
-### Workflow
-
-1. The graph auto-updates on file changes (via hooks).
-2. Use `detect_changes` for code review.
-3. Use `get_affected_flows` to understand impact.
-4. Use `query_graph` pattern="tests_for" to check coverage.
+Before exploring the codebase, prefer the project's knowledge graph (`code-review-graph` MCP and `graphify-out/`) over `grep`/`glob`. See `CLAUDE.md` "MCP Tools" section.
