@@ -12,10 +12,10 @@
     * CDC class with a single interface (interface 0).
     * Message format: Binary format, max 64 bytes (CDC packet size).
     * Field definitions:
-        * MAGIC (2 bytes): 0xDCB0 (big-endian) for host->device and 0x55AA for device->host to identify the valid message.
+        * MAGIC (2 bytes): 0xDCB1 (big-endian) for host->device and 0x55AA for device->host to identify the valid message.
         * DATETIME (6 bytes): RTC_DateTime_t struct representing the RTC time.
         * WEATHER_DATA (18 bytes): Weather_Data_Packed_t struct representing the weather data.
-        * CONFIG (220 bytes): Meta_Data_t struct representing the station configuration.
+        * CONFIG (216 bytes): Meta_Data_t struct representing the station configuration.
         * STATUS (12 bytes): System_Ready_Status_t struct representing the system ready status.
         * CMD (1 byte): Command code from host to device.
             * 0x01: Request current weather data (device responds with a message containing the latest data).
@@ -37,7 +37,7 @@
 /* Protocol Constants                                                         */
 /* -------------------------------------------------------------------------- */
 #define MAGIC_H2D_H    0xDCu
-#define MAGIC_H2D_L    0xB0u
+#define MAGIC_H2D_L    0xB1u
 #define MAGIC_D2H_H    0x55u
 #define MAGIC_D2H_L    0xAAu
 
@@ -47,7 +47,7 @@
  * Having these as explicit uint8_t macros makes every comparison
  * unambiguously unsigned and self-documenting. */
 #define MAGIC_H2D_FOOT_H  ((uint8_t)(~MAGIC_H2D_H))   /* 0x23 */
-#define MAGIC_H2D_FOOT_L  ((uint8_t)(~MAGIC_H2D_L))   /* 0x4F */
+#define MAGIC_H2D_FOOT_L  ((uint8_t)(~MAGIC_H2D_L))   /* 0x4E */
 
 #define CMD_REQ_WEATHER  0x01u  /* Weather data only  */
 #define CMD_REQ_META     0x02u  /* Config only        */

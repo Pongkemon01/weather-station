@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/">
+        <!-- Add icons and other resources here as the application grows. -->
+        <!-- Example:
+        <file>icons/app.png</file>
+        -->
+    </qresource>
+</RCC>

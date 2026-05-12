@@ -1,0 +1,21 @@
+# 99-robin-weather-station.rules
+#
+# Linux udev rule for the Robin Weather Station (USB VID:PID = 1209:dcb1).
+# Install location: /etc/udev/rules.d/
+#
+# What this does:
+#   1. Grants the dialout group read/write access to /dev/ttyACM* nodes
+#      created by Robin devices, so unprivileged users in dialout can use them.
+#   2. Adds the uaccess tag so logged-in users get access via systemd-logind.
+#   3. Tells ModemManager to ignore the device. WITHOUT THIS, ModemManager
+#      will probe /dev/ttyACM* with AT commands for ~10 seconds after enumeration,
+#      scrambling the binary protocol.
+#
+# Apply with:
+#   sudo cp 99-robin-weather-station.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="dcb1", \
+    MODE="0664", GROUP="dialout", TAG+="uaccess", \
+    ENV{ID_MM_DEVICE_IGNORE}="1"

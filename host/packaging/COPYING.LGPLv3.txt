@@ -1,0 +1,13 @@
+PLACEHOLDER — replace this file before shipping any release.
+
+Download the official LGPLv3 license text from:
+
+    https://www.gnu.org/licenses/lgpl-3.0.txt
+
+Save it over this file (keeping the filename COPYING.LGPLv3.txt) before
+running `cmake --install` to produce a distributable build.
+
+Rationale: shipping the unmodified LGPLv3 text alongside the application
+is part of the LGPLv3 compliance requirements for using dynamically-linked
+Qt under the open-source license. See the project spec in CLAUDE.md and
+the README.md in this directory for context.
