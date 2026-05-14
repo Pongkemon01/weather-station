@@ -59,6 +59,37 @@ Plan: `User_Management_Implementation_Plan.md` · Test plan: `User_Management_Te
 
 ---
 
+## Host Application (Robin WSC)
+
+Plan: `host/host_implementation_plan.md` · Constraints: `host/CLAUDE.md` · Stack: Qt 6.8 Widgets + QSerialPort, C++17, MinGW-w64
+
+Backend (completed before new UI plan):
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| H0 | Project scaffold (CMake, Qt, warning flags, app_info.h, resource file, smoke-test MainWindow) | ✓ 2026-05-13 |
+| H1 | Wire protocol layer — `FrameParser` (6-state D→H state machine, opcode-length table, resync) + 13 Qt Test cases | ✓ 2026-05-14 |
+| H2 | Device communication — `DeviceIO` (IO thread, `QSerialPort`, H→D frame build, parser feed) + `DeviceController` (UI-thread owner, `QThread` lifecycle, all cross-thread signals `Qt::QueuedConnection`) | ✓ 2026-05-14 |
+
+UI plan phases:
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Ph0 | Shell rewrite — 5-tab `QTabWidget` (Status / Current Measurement / General Settings / Sensor Settings / About), Help menu (Debug Log… Ctrl+L, About), window icon, banner `QLabel` | ✓ 2026-05-14 |
+| Ph1 | Connection lifecycle — device picker dialog, auto-connect (0/1/2+ device logic), protocol-mismatch banner, status-bar mirror | — |
+| Ph2 | DeviceController request/response API — typed slots per opcode, `m_metaCache`, 1500 ms per-request timeout | — |
+| Ph3 | Status tab — 11 subsystem indicators, RTC display, Update RTC, Clear Database, Re-connect, 2 s poll | — |
+| Ph4 | Current Measurement tab — 7-row sensor table, 1 s `REQ_WEATHER` poll, Q9.7 conversion | — |
+| Ph5 | General Settings tab — Region/Station ID, Sampling Interval, server URLs; load/Apply/Discard via `m_metaCache` | — |
+| Ph6 | Sensor Settings tab — 5 calibration adjusts; shares `m_metaCache` with Ph5 | — |
+| Ph7 | About tab — icon, product name, copyright, version string | — |
+| Ph8 | Debug Log dialog — `LogBuffer` viewer, live tail, Copy All, Ctrl+L wire-up | — |
+| Ph9 | Build & package — new sources in CMakeLists, ctest clean, windeployqt portable zip | — |
+
+Test coverage: `tests/frame_parser_test.cpp` — 13 Qt Test cases, 15/15 pass.
+
+---
+
 ## Verification Suites
 
 | Suite | Scope | Result |
