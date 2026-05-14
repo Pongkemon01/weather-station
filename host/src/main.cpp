@@ -1,8 +1,7 @@
 // main.cpp — application entry point.
-//
-// Sets up QApplication identity from AppInfo, then opens the main window.
 
 #include <QApplication>
+#include <QIcon>
 
 #include "app_info.h"
 #include "mainwindow.h"
@@ -15,6 +14,7 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationVersion(AppInfo::kAppVersion);
     QApplication::setOrganizationName(AppInfo::kOrganizationName);
     QApplication::setOrganizationDomain(AppInfo::kOrganizationDomain);
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/robin_wsc.png")));
 
     MainWindow w;
     w.show();
