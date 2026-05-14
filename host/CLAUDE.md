@@ -26,7 +26,7 @@ Shared protocol headers live in: `../shared/`.
 | Field | Value |
 |---|---|
 | Product name | Robin Weather Station |
-| Manufacturer | RobinLab-KU |
+| Manufacturer | RobinLab |
 | Executable | `robin_wsc.exe` (Windows) / `robin_wsc` (Linux/macOS) |
 | Version | 1.0.0 |
 | USB VID:PID | `0x1209:0xDCB1` (pid.codes, pending merge) |

@@ -6,16 +6,28 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>760</width>
-    <height>560</height>
+    <width>800</width>
+    <height>600</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>Robin Weather Station Configurator</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QVBoxLayout" name="verticalLayout">
+   <layout class="QVBoxLayout" name="mainVLayout">
     <property name="spacing">
+     <number>0</number>
+    </property>
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
      <number>0</number>
     </property>
     <item>
@@ -39,31 +51,947 @@
       <property name="currentIndex">
        <number>0</number>
       </property>
+
+      <!-- ================================================================ -->
+      <!-- STATUS TAB                                                        -->
+      <!-- ================================================================ -->
       <widget class="QWidget" name="statusTab">
        <attribute name="title">
         <string>Status</string>
        </attribute>
+       <layout class="QVBoxLayout" name="statusVLayout">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <property name="leftMargin">
+         <number>12</number>
+        </property>
+        <property name="topMargin">
+         <number>12</number>
+        </property>
+        <property name="rightMargin">
+         <number>12</number>
+        </property>
+        <property name="bottomMargin">
+         <number>12</number>
+        </property>
+        <!-- Row: Device status + Re-connect button -->
+        <item>
+         <layout class="QHBoxLayout" name="statusHeaderLayout">
+          <item>
+           <widget class="QLabel" name="statusStaticLabel">
+            <property name="text">
+             <string>Device status :</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="statusConnectionLabel">
+            <property name="text">
+             <string>—</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="statusHeaderSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="statusReconnectButton">
+            <property name="text">
+             <string>Re-connect</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <!-- Separator -->
+        <item>
+         <widget class="QFrame" name="statusSep1">
+          <property name="frameShape">
+           <enum>QFrame::HLine</enum>
+          </property>
+          <property name="frameShadow">
+           <enum>QFrame::Sunken</enum>
+          </property>
+         </widget>
+        </item>
+        <!-- LED grid: two VBoxLayouts side by side -->
+        <item>
+         <layout class="QHBoxLayout" name="statusLedsLayout">
+          <item>
+           <layout class="QVBoxLayout" name="statusLedsLeft">
+            <property name="spacing">
+             <number>8</number>
+            </property>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusLcdLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>LCD Panel</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusRtcLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>Real-time Clock</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusModbusLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>Modbus</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusTemphumLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>Temp. and Humidity Sensors</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusLightLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>Light Sensor</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusSdLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>SD Card Status</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="statusLedsRight">
+            <property name="spacing">
+             <number>8</number>
+            </property>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusNvramLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>NV Memory</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusUsartLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>UART Subsystem</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusLteLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>LTE Modem</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusPressureLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>Pressure Sensor</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusRainLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>Rain Gauge</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout">
+              <item>
+               <widget class="QLabel" name="statusSdwpLed">
+                <property name="text"><string/></property>
+                <property name="minimumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="maximumSize"><size><width>16</width><height>16</height></size></property>
+                <property name="styleSheet"><string>background-color: #aaaaaa; border-radius: 3px;</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel">
+                <property name="text"><string>SD Card Write-Protect</string></property>
+               </widget>
+              </item>
+              <item>
+               <spacer>
+                <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </item>
+        <!-- Separator -->
+        <item>
+         <widget class="QFrame" name="statusSep2">
+          <property name="frameShape"><enum>QFrame::HLine</enum></property>
+          <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+         </widget>
+        </item>
+        <!-- Computer Date-Time row -->
+        <item>
+         <layout class="QHBoxLayout">
+          <item>
+           <widget class="QLabel">
+            <property name="text"><string>Computer Date-Time:</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer>
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QLabel" name="statusComputerTimeValue">
+            <property name="text"><string>—</string></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <!-- Device RTC Date-Time row -->
+        <item>
+         <layout class="QHBoxLayout">
+          <item>
+           <widget class="QLabel">
+            <property name="text"><string>Device RTC Date-Time:</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer>
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QLabel" name="statusDeviceTimeValue">
+            <property name="text"><string>—</string></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <!-- Update RTC button (right-aligned) -->
+        <item>
+         <layout class="QHBoxLayout">
+          <item>
+           <spacer>
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="statusUpdateRtcButton">
+            <property name="text"><string>Update RTC to the Computer Time</string></property>
+            <property name="enabled"><bool>false</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <!-- Separator -->
+        <item>
+         <widget class="QFrame" name="statusSep3">
+          <property name="frameShape"><enum>QFrame::HLine</enum></property>
+          <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+         </widget>
+        </item>
+        <!-- Clear Database button (left-aligned, red) -->
+        <item>
+         <layout class="QHBoxLayout">
+          <item>
+           <widget class="QPushButton" name="statusClearDbButton">
+            <property name="text"><string>Clear Database</string></property>
+            <property name="enabled"><bool>false</bool></property>
+            <property name="styleSheet">
+             <string>background-color: #dc3545; color: white; border-radius: 6px; padding: 6px 16px;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer>
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <!-- Vertical filler -->
+        <item>
+         <spacer name="statusVSpacer">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property>
+         </spacer>
+        </item>
+       </layout>
       </widget>
+
+      <!-- ================================================================ -->
+      <!-- CURRENT MEASUREMENT TAB                                          -->
+      <!-- ================================================================ -->
       <widget class="QWidget" name="measurementTab">
        <attribute name="title">
         <string>Current Measurement</string>
        </attribute>
+       <layout class="QVBoxLayout" name="measVLayout">
+        <property name="leftMargin"><number>12</number></property>
+        <property name="topMargin"><number>12</number></property>
+        <property name="rightMargin"><number>12</number></property>
+        <property name="bottomMargin"><number>12</number></property>
+        <item>
+         <widget class="QTableWidget" name="measTable">
+          <property name="editTriggers">
+           <set>QAbstractItemView::NoEditTriggers</set>
+          </property>
+          <property name="selectionMode">
+           <enum>QAbstractItemView::SingleSelection</enum>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectRows</enum>
+          </property>
+          <property name="alternatingRowColors">
+           <bool>true</bool>
+          </property>
+          <property name="showGrid">
+           <bool>true</bool>
+          </property>
+          <property name="rowCount">
+           <number>7</number>
+          </property>
+          <property name="columnCount">
+           <number>3</number>
+          </property>
+          <attribute name="horizontalHeaderStretchLastSection">
+           <bool>false</bool>
+          </attribute>
+          <attribute name="verticalHeaderVisible">
+           <bool>false</bool>
+          </attribute>
+          <column>
+           <property name="text"><string>Sensor</string></property>
+          </column>
+          <column>
+           <property name="text"><string>Value</string></property>
+          </column>
+          <column>
+           <property name="text"><string>Unit</string></property>
+          </column>
+          <row/><row/><row/><row/><row/><row/><row/>
+          <!-- Temperature -->
+          <item row="0" column="0">
+           <property name="text"><string>Temperature</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="0" column="1">
+           <property name="text"><string>—</string></property>
+           <property name="textAlignment"><set>Qt::AlignCenter</set></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="0" column="2">
+           <property name="text"><string>Celsius</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <!-- Humidity -->
+          <item row="1" column="0">
+           <property name="text"><string>Humidity</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="1" column="1">
+           <property name="text"><string>—</string></property>
+           <property name="textAlignment"><set>Qt::AlignCenter</set></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="1" column="2">
+           <property name="text"><string>%Rh</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <!-- Pressure -->
+          <item row="2" column="0">
+           <property name="text"><string>Pressure</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="2" column="1">
+           <property name="text"><string>—</string></property>
+           <property name="textAlignment"><set>Qt::AlignCenter</set></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="2" column="2">
+           <property name="text"><string>kPa</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <!-- Light -->
+          <item row="3" column="0">
+           <property name="text"><string>Light</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="3" column="1">
+           <property name="text"><string>—</string></property>
+           <property name="textAlignment"><set>Qt::AlignCenter</set></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="3" column="2">
+           <property name="text"><string>uMol/m2s</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <!-- Rain Gauge -->
+          <item row="4" column="0">
+           <property name="text"><string>Rain Gauge</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="4" column="1">
+           <property name="text"><string>—</string></property>
+           <property name="textAlignment"><set>Qt::AlignCenter</set></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="4" column="2">
+           <property name="text"><string>mm/Hr</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <!-- Dew Point -->
+          <item row="5" column="0">
+           <property name="text"><string>Dew Point</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="5" column="1">
+           <property name="text"><string>—</string></property>
+           <property name="textAlignment"><set>Qt::AlignCenter</set></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="5" column="2">
+           <property name="text"><string>Celsius</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <!-- BUS Value -->
+          <item row="6" column="0">
+           <property name="text"><string>BUS Value</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="6" column="1">
+           <property name="text"><string>—</string></property>
+           <property name="textAlignment"><set>Qt::AlignCenter</set></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+          <item row="6" column="2">
+           <property name="text"><string>-</string></property>
+           <property name="flags"><set>Qt::ItemIsEnabled|Qt::ItemIsSelectable</set></property>
+          </item>
+         </widget>
+        </item>
+       </layout>
       </widget>
+
+      <!-- ================================================================ -->
+      <!-- GENERAL SETTINGS TAB                                             -->
+      <!-- ================================================================ -->
       <widget class="QWidget" name="generalSettingsTab">
        <attribute name="title">
         <string>General Settings</string>
        </attribute>
+       <layout class="QVBoxLayout" name="genVLayout">
+        <property name="spacing"><number>6</number></property>
+        <property name="leftMargin"><number>12</number></property>
+        <property name="topMargin"><number>12</number></property>
+        <property name="rightMargin"><number>12</number></property>
+        <property name="bottomMargin"><number>12</number></property>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Region ID:</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="genRegionIdSpin">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="minimum"><number>0</number></property>
+          <property name="maximum"><number>65535</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Station ID:</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="genStationIdSpin">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="minimum"><number>0</number></property>
+          <property name="maximum"><number>65535</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Sampling Interval:</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="genSamplingIntervalSpin">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="suffix"><string> minutes</string></property>
+          <property name="minimum"><number>1</number></property>
+          <property name="maximum"><number>60</number></property>
+          <property name="value"><number>10</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Server DNS:</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="genServerDnsEdit">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="placeholderText"><string>Max 63 characters</string></property>
+          <property name="maxLength"><number>63</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Sensor Upload Path:</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="genSensorPathEdit">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="placeholderText"><string>Max 63 characters</string></property>
+          <property name="maxLength"><number>63</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Firmware Path:</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="genFirmwarePathEdit">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="placeholderText"><string>Max 63 characters</string></property>
+          <property name="maxLength"><number>63</number></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="genVSpacer">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QFrame" name="genSep">
+          <property name="frameShape"><enum>QFrame::HLine</enum></property>
+          <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout">
+          <item>
+           <spacer>
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="genDiscardButton">
+            <property name="text"><string>Discard</string></property>
+            <property name="enabled"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="genApplyButton">
+            <property name="text"><string>Apply</string></property>
+            <property name="enabled"><bool>false</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
       </widget>
+
+      <!-- ================================================================ -->
+      <!-- SENSOR SETTINGS TAB                                              -->
+      <!-- ================================================================ -->
       <widget class="QWidget" name="sensorSettingsTab">
        <attribute name="title">
         <string>Sensor Settings</string>
        </attribute>
+       <layout class="QVBoxLayout" name="sensorVLayout">
+        <property name="spacing"><number>6</number></property>
+        <property name="leftMargin"><number>12</number></property>
+        <property name="topMargin"><number>12</number></property>
+        <property name="rightMargin"><number>12</number></property>
+        <property name="bottomMargin"><number>12</number></property>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Temp. Adjust (Celsius):</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QDoubleSpinBox" name="sensorTempAdjSpin">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><number>-50.0</number></property>
+          <property name="maximum"><number>50.0</number></property>
+          <property name="singleStep"><number>0.01</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Humidity Adjust (%Rh):</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QDoubleSpinBox" name="sensorHumidityAdjSpin">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><number>-50.0</number></property>
+          <property name="maximum"><number>50.0</number></property>
+          <property name="singleStep"><number>0.01</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Pressure Adjust (kPa):</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QDoubleSpinBox" name="sensorPressureAdjSpin">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><number>-50.0</number></property>
+          <property name="maximum"><number>50.0</number></property>
+          <property name="singleStep"><number>0.01</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Light Adjust (uMol/m2s):</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="sensorLightAdjSpin">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="minimum"><number>-10000</number></property>
+          <property name="maximum"><number>10000</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel">
+          <property name="text"><string>Rain-Gauge Adjust (mm/Hr):</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QDoubleSpinBox" name="sensorRainfallAdjSpin">
+          <property name="enabled"><bool>false</bool></property>
+          <property name="decimals"><number>2</number></property>
+          <property name="minimum"><number>-100.0</number></property>
+          <property name="maximum"><number>100.0</number></property>
+          <property name="singleStep"><number>0.01</number></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="sensorVSpacer">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QFrame" name="sensorSep">
+          <property name="frameShape"><enum>QFrame::HLine</enum></property>
+          <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout">
+          <item>
+           <spacer>
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="sensorDiscardButton">
+            <property name="text"><string>Discard</string></property>
+            <property name="enabled"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="sensorApplyButton">
+            <property name="text"><string>Apply</string></property>
+            <property name="enabled"><bool>false</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
       </widget>
+
+      <!-- ================================================================ -->
+      <!-- ABOUT TAB                                                         -->
+      <!-- ================================================================ -->
       <widget class="QWidget" name="aboutTab">
        <attribute name="title">
         <string>About</string>
        </attribute>
+       <layout class="QVBoxLayout" name="aboutVLayout">
+        <property name="leftMargin"><number>24</number></property>
+        <property name="topMargin"><number>24</number></property>
+        <property name="rightMargin"><number>24</number></property>
+        <property name="bottomMargin"><number>24</number></property>
+        <item>
+         <layout class="QHBoxLayout" name="aboutContentLayout">
+          <property name="spacing"><number>20</number></property>
+          <item>
+           <widget class="QLabel" name="aboutLogoLabel">
+            <property name="minimumSize"><size><width>80</width><height>80</height></size></property>
+            <property name="maximumSize"><size><width>80</width><height>80</height></size></property>
+            <property name="scaledContents"><bool>true</bool></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="aboutTextLayout">
+            <property name="spacing"><number>8</number></property>
+            <item>
+             <widget class="QLabel" name="aboutTitleLabel">
+              <property name="text"><string>Weather Station Control Center</string></property>
+              <property name="font">
+               <font>
+                <pointsize>14</pointsize>
+                <weight>75</weight>
+                <bold>true</bold>
+               </font>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel">
+              <property name="text"><string>Copyright (c) 2026 by RobinLab</string></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel">
+              <property name="text"><string>This program should be used with the weather-station device connected through USB</string></property>
+              <property name="wordWrap"><bool>true</bool></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="aboutVersionLabel">
+              <property name="text"><string>Version ?</string></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <spacer>
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <spacer name="aboutVSpacer">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property>
+         </spacer>
+        </item>
+       </layout>
       </widget>
+
      </widget>
     </item>
    </layout>
@@ -73,17 +1001,15 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>760</width>
+     <width>800</width>
      <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
-     <string>&amp;Help</string>
+     <string>Help</string>
     </property>
     <addaction name="actionDebugLog"/>
-    <addaction name="separator"/>
-    <addaction name="actionAbout"/>
    </widget>
    <addaction name="menuHelp"/>
   </widget>
@@ -94,11 +1020,6 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+L</string>
-   </property>
-  </action>
-  <action name="actionAbout">
-   <property name="text">
-    <string>About</string>
    </property>
   </action>
  </widget>

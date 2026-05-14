@@ -25,6 +25,7 @@
             * 0x05: Request current system status (device responds with the status in the STATUS field).
             * 0x06: Request to flush the database (no additional data expected; device clears all stored weather data).
             * 0x07: Request to reset the device (no additional data expected; device performs a reset).
+            * 0x08: Request current RTC date-time (device responds with the current RTC_DateTime_t).
             * All other command codes are reserved and should be ignored by the device.
     * Packet format:
         [MAGIC (2 bytes)] [CMD (1 byte)] [PAYLOAD(optional) (up to 220 bytes)][~MAGIC (2 bytes)]
@@ -56,6 +57,7 @@
 #define CMD_REQ_STATUS   0x05u  /* Get System Status  */
 #define CMD_DB_FLUSH     0x06u  /* Flush database     */
 #define CMD_SYS_RESET    0x07u  /* Reboot             */
+#define CMD_REQ_RTC      0x08u  /* Request RTC time   */
 #define CMD_ACK          0xFEu  /* Generic success    */
 #define CMD_NAK          0xFFu  /* Error feedback     */
 
@@ -64,7 +66,7 @@
  * treated as a valid host command — the old guard
  *   (current_cmd > CMD_SYS_RESET && current_cmd != CMD_NAK)
  * allowed 0xFF through because of the != exclusion. */
-#define CMD_MAX          CMD_SYS_RESET
+#define CMD_MAX          CMD_REQ_RTC
 
 #define ERR_UNKNOWN_CMD    0x01u
 #define ERR_INVALID_FOOTER 0x02u
@@ -301,6 +303,19 @@ void cdc_task(void *params)
                         /* BUG FIX #8: Named constant instead of magic number. */
                         vTaskDelay(pdMS_TO_TICKS(RESET_DRAIN_MS));
                         HAL_NVIC_SystemReset();
+                        break;
+
+                    case CMD_REQ_RTC:
+                        if (datetime_get_datetime_from_rtc(&(pg_buf.rtc)))
+                        {
+                            usb_send_header(CMD_REQ_RTC);
+                            tud_cdc_write(&(pg_buf.rtc), sizeof(RTC_DateTime_t));
+                            usb_send_footer();
+                        }
+                        else
+                        {
+                            usb_send_nak(ERR_INVALID_DATA);
+                        }
                         break;
                     }
                 }

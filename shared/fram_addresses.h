@@ -36,7 +36,9 @@
 #define FRAM_TOTAL_SIZE     0x200000UL
 
 /** Highest valid byte address in the main array (inclusive). */
+#ifndef FRAM_MAX_ADDR
 #define FRAM_MAX_ADDR       0x1FFFFFUL
+#endif /* FRAM_MAX_ADDR */
 
 /* ── DB Region — first 1 MB, reserved for weather record ring buffer ── */
 

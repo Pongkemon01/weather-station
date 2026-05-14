@@ -1,22 +1,27 @@
-// device_io.cpp — IO worker (scaffold).
+// device_io.cpp — IO worker; lives on the dedicated IO thread.
 
 #include "device_io.h"
 
 #include "app_info.h"
+#include "protocol.h"
 
-DeviceIO::DeviceIO(QObject* parent) : QObject(parent) {
-    connect(&port_, &QSerialPort::readyRead, this, &DeviceIO::onReadyRead);
+DeviceIO::DeviceIO(QObject* parent) : QObject(parent)
+{
+    connect(&port_, &QSerialPort::readyRead,
+            this, &DeviceIO::onReadyRead);
     connect(&port_, &QSerialPort::errorOccurred,
             this, &DeviceIO::onSerialError);
 }
 
-DeviceIO::~DeviceIO() {
+DeviceIO::~DeviceIO()
+{
     if (port_.isOpen()) {
         port_.close();
     }
 }
 
-void DeviceIO::openPort(const QSerialPortInfo& info) {
+void DeviceIO::openPort(const QSerialPortInfo& info)
+{
     if (port_.isOpen()) {
         port_.close();
     }
@@ -33,7 +38,7 @@ void DeviceIO::openPort(const QSerialPortInfo& info) {
         return;
     }
 
-    // Avoid surprise resets on MCUs that interpret DTR/RTS toggling.
+    // Suppress spurious MCU resets that some boards trigger on DTR/RTS edges.
     port_.setDataTerminalReady(false);
     port_.setRequestToSend(false);
 
@@ -41,26 +46,43 @@ void DeviceIO::openPort(const QSerialPortInfo& info) {
     emit opened();
 }
 
-void DeviceIO::closePort() {
+void DeviceIO::closePort()
+{
     if (port_.isOpen()) {
         port_.close();
     }
     emit closed();
 }
 
-void DeviceIO::sendCommand(quint8 opcode, const QByteArray& payload) {
-    Q_UNUSED(opcode);
-    Q_UNUSED(payload);
-    // TODO: frame the command per shared/protocol.h, then port_.write(...).
+void DeviceIO::sendCommand(quint8 opcode, const QByteArray& payload)
+{
+    if (!port_.isOpen()) {
+        return;
+    }
+
+    // Build Host→Device frame: MAGIC_H2D | cmd | payload | FOOTER_H2D
+    QByteArray frame;
+    frame.reserve(2 + 1 + payload.size() + 2);
+    frame += static_cast<char>(ROBIN_MAGIC_H2D_H);
+    frame += static_cast<char>(ROBIN_MAGIC_H2D_L);
+    frame += static_cast<char>(opcode);
+    frame += payload;
+    frame += static_cast<char>(ROBIN_FOOTER_H2D_H);
+    frame += static_cast<char>(ROBIN_FOOTER_H2D_L);
+
+    port_.write(frame);
 }
 
-void DeviceIO::onReadyRead() {
+void DeviceIO::onReadyRead()
+{
     const QByteArray chunk = port_.readAll();
-    // TODO: feed chunk into parser_, emit frameReceived for each complete frame.
-    Q_UNUSED(chunk);
+    parser_.feed(chunk, [this](quint8 op, const QByteArray& pay) {
+        emit frameReceived(op, pay);
+    });
 }
 
-void DeviceIO::onSerialError(QSerialPort::SerialPortError error) {
+void DeviceIO::onSerialError(QSerialPort::SerialPortError error)
+{
     if (error == QSerialPort::NoError) {
         return;
     }

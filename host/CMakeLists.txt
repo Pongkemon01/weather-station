@@ -29,6 +29,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/dialogs
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/tabs
 )
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Widgets SerialPort)
@@ -75,6 +76,9 @@ set(APP_SOURCES
     src/dialogs/device_picker_dialog.cpp
     src/dialogs/device_picker_dialog.h
     src/dialogs/device_picker_dialog.ui
+    src/dialogs/log_viewer_dialog.cpp
+    src/dialogs/log_viewer_dialog.h
+    src/dialogs/log_viewer_dialog.ui
 )
 
 # Shared protocol code (compiled into both firmware and host)

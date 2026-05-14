@@ -40,11 +40,12 @@
  *   0x05   REQ_STATUS       (empty)              System_Ready_Status_t (12B)
  *   0x06   DB_FLUSH         (empty)              ACK echoing 0x06  or  NAK + err
  *   0x07   SYS_RESET        (empty)              ACK echoing 0x07, then link drops
+ *   0x08   REQ_RTC          (empty)              RTC_DateTime_t (6B)
  *
  *   0xFE   ACK              (device-originated)  1-byte echoed command code
  *   0xFF   NAK              (device-originated)  1-byte error code (ROBIN_ERR_*)
  *
- *   Any byte > 0x07 in the CMD position (other than ACK/NAK which the host
+ *   Any byte > 0x08 in the CMD position (other than ACK/NAK which the host
  *   would never send anyway) is rejected by the device with NAK/UNKNOWN_CMD.
  *
  * ============================================================================
@@ -114,13 +115,14 @@ typedef enum {
     ROBIN_OP_REQ_STATUS   = 0x05u,  /* H->D: empty;          D->H: System_Ready_Status_t */
     ROBIN_OP_DB_FLUSH     = 0x06u,  /* H->D: empty;          D->H: ACK / NAK             */
     ROBIN_OP_SYS_RESET    = 0x07u,  /* H->D: empty;          D->H: ACK, then link drops  */
+    ROBIN_OP_REQ_RTC      = 0x08u,  /* H->D: empty;          D->H: RTC_DateTime_t        */
     ROBIN_OP_ACK          = 0xFEu,  /* D->H only: payload = 1 byte echoed cmd            */
     ROBIN_OP_NAK          = 0xFFu   /* D->H only: payload = 1 byte error code            */
 } robin_opcode_t;
 
 /* Highest valid host-originated opcode. Anything above (except ACK/NAK,
  * which the host never sends) is rejected by the device. */
-#define ROBIN_OP_MAX_HOST_CMD    ROBIN_OP_SYS_RESET
+#define ROBIN_OP_MAX_HOST_CMD    ROBIN_OP_REQ_RTC
 
 /* ========================================================================== */
 /* NAK error codes                                                            */

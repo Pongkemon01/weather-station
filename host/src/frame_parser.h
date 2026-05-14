@@ -1,10 +1,10 @@
-// frame_parser.h — binary frame parser for the Robin Weather Station
-// protocol. Wire format is defined in ../shared/protocol.h.
+// frame_parser.h — Robin Weather Station binary frame parser (Device→Host).
+// Wire format defined in ../shared/protocol.h.
 //
-// SCAFFOLD: structure only. The actual framing logic, CRC validation, and
-// state-machine reset behaviour will be implemented once ../shared/protocol.h
-// is finalised. Pattern matches the firmware-side cdctask.c parser to keep
-// host and device in lockstep.
+// Byte-at-a-time state machine. Payload length is looked up from the opcode
+// table (no length field on the wire). Resyncs on unknown opcode or footer
+// mismatch — USB CDC provides transport integrity, so these are logic-error
+// guards only.
 
 #pragma once
 
@@ -18,12 +18,27 @@ public:
 
     FrameParser();
 
-    // Reset the state machine. Call after open() or after any framing error.
+    // Reset the state machine. Call after port open or on framing error.
     void reset();
 
-    // Feed received bytes; invokes the handler for each complete frame found.
+    // Feed received bytes; calls on_frame once per complete valid frame.
     void feed(const QByteArray& bytes, const FrameHandler& on_frame);
 
 private:
-    // TODO: state machine fields per shared/protocol.h.
+    enum class State : quint8 {
+        WaitMagicH,
+        WaitMagicL,
+        WaitCmd,
+        RecvPayload,
+        WaitFooterH,
+        WaitFooterL,
+    };
+
+    // Expected payload byte count for a D→H opcode; -1 if opcode is unknown.
+    static int payloadLen(quint8 opcode);
+
+    State      m_state;
+    quint8     m_cmd;
+    int        m_payloadExpected;
+    QByteArray m_payload;
 };

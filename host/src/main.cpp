@@ -2,11 +2,14 @@
 
 #include <QApplication>
 #include <QIcon>
+#include <QLocale>
 
 #include "app_info.h"
 #include "mainwindow.h"
 
 int main(int argc, char* argv[]) {
+    QLocale::setDefault(QLocale(QLocale::English, QLocale::UnitedStates));
+
     QApplication app(argc, argv);
 
     QApplication::setApplicationName(AppInfo::kAppDisplayName);

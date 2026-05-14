@@ -44,3 +44,7 @@ desktop.ini
 # Logs / temp
 *.log
 *.tmp
+
+# Portable distribution (built artifacts — not for version control)
+packaging/RobinWSC-*/
+packaging/*.zip
