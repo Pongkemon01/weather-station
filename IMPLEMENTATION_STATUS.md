@@ -76,7 +76,7 @@ UI plan phases:
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Ph0 | Shell rewrite — 5-tab `QTabWidget` (Status / Current Measurement / General Settings / Sensor Settings / About), Help menu (Debug Log… Ctrl+L, About), window icon, banner `QLabel` | ✓ 2026-05-14 |
-| Ph1 | Connection lifecycle — device picker dialog, auto-connect (0/1/2+ device logic), protocol-mismatch banner, status-bar mirror | — |
+| Ph1 | Connection lifecycle — device picker dialog, auto-connect (0/1/2+ device logic), protocol-mismatch banner, status-bar mirror | ✓ 2026-05-14 |
 | Ph2 | DeviceController request/response API — typed slots per opcode, `m_metaCache`, 1500 ms per-request timeout | — |
 | Ph3 | Status tab — 11 subsystem indicators, RTC display, Update RTC, Clear Database, Re-connect, 2 s poll | — |
 | Ph4 | Current Measurement tab — 7-row sensor table, 1 s `REQ_WEATHER` poll, Q9.7 conversion | — |
