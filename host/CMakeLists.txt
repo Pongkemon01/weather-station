@@ -72,6 +72,9 @@ set(APP_SOURCES
     src/frame_parser.h
     src/log_buffer.cpp
     src/log_buffer.h
+    src/dialogs/device_picker_dialog.cpp
+    src/dialogs/device_picker_dialog.h
+    src/dialogs/device_picker_dialog.ui
 )
 
 # Shared protocol code (compiled into both firmware and host)
