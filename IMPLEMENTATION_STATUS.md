@@ -104,6 +104,7 @@ Test coverage: `tests/frame_parser_test.cpp` — 13 Qt Test cases, 15/15 pass.
 | T7 / TUM0–11 | User management black-box  | ✓ 75/75 — 2026-05-08 |
 | S6 / S8 unit | Admin auth (7) + admin UI E2E (14) | ✓ — 2026-05-07 |
 | P3.2 host    | OTA size guard — `ovp_parse` + `FLASH_APP_SIZE_MAX` (native gcc / WSL) | ✓ 6/6 — 2026-05-11 |
+| H1 host      | `FrameParser` — all opcodes, resync, split feeds, payload integrity, reset | ✓ 13/13 — 2026-05-14 |
 
 ---
 
