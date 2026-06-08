@@ -1,4 +1,5 @@
 #include "bmp390.h"
+#include "main.h"
 
 /* Default timeout for I2C */
 #define I2C_TIMEOUT 500
@@ -398,6 +399,8 @@ bool bmp390_soft_reset(void)
     if (HAL_I2C_Master_Transmit(hbmp390, dev_addr, rst_cmd, 2, I2C_TIMEOUT) != HAL_OK)
         return false;
 
+    my_delay(3); // Max time for reset is 3 ms
+
     return true;
 }
 
@@ -429,4 +432,29 @@ bool bmp390_get_sensor_data(float *temperature, float *pressure)
     *pressure = bmp390_compensate_pressure(adc_press);
 
     return true;
+}
+
+/* ---------------------------------------------------------------- */
+bool bmp390_ping(I2C_HandleTypeDef *hi2c)
+{
+    uint8_t chip_id;
+
+    if (hi2c == NULL && hbmp390 == NULL)
+        return false;
+
+    if (hbmp390 == NULL)
+    {
+        // Try to transmit a dummy byte to the device
+        if (HAL_I2C_IsDeviceReady(hi2c, dev_addr, 1, 10) == HAL_OK)
+            return true; // Device is ready
+        else
+            return false; // Device not found
+    }
+    else
+    {
+        if (!(bmp390_get_reg(BMP390_REG_CHIP_ID, &chip_id, 1)))
+            return false;
+
+        return (chip_id == BMP390_CHIP_ID);
+    }
 }

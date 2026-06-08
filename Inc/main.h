@@ -123,7 +123,7 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+void my_delay(uint32_t ms); // A custom delay function that can be used in both RTOS and non-RTOS contexts
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

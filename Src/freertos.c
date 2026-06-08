@@ -345,5 +345,17 @@ void UsbLoopTask(void *argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
-
+void my_delay(uint32_t ms)
+{
+    // Check if the RTOS kernel is running
+    if (osKernelGetState() == osKernelRunning)
+    {
+        // CMSIS-RTOS v2 handles the ms conversion internally
+        osDelay(ms);
+    }
+    else
+    {
+        HAL_Delay(ms);
+    }
+}
 /* USER CODE END Application */

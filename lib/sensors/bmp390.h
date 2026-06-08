@@ -11,7 +11,8 @@ extern "C"
 #endif
     bool bmp390_init(I2C_HandleTypeDef *hi2c);
     bool bmp390_soft_reset(void);
-    bool bmp390_get_sensor_data(float *temperature, float *pressure);
+    bool bmp390_get_sensor_data(float *temperature, float *pressure); /* Temperature in °C, Pressure in Pa */
+    bool bmp390_ping(I2C_HandleTypeDef *hi2c);
 #ifdef __cplusplus
 }
 #endif

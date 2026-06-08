@@ -30,6 +30,7 @@
 #include "uart_subsystem.h"
 #include "modbus.h"
 #include "bmp390.h"
+#include "ms5611.h"
 #include "sht45.h"
 #include "a7670.h"
 #include "ui.h"
@@ -51,6 +52,13 @@ extern osThreadId_t SslUploadTaskHandle; // SslUploadTaskHandle was casted from 
 Meta_Data_t db_meta_data;
 Weather_Data_t weather_data = {0};
 float accum_rainfall = 0.0f;
+struct
+{
+    bool (*pt_init)(I2C_HandleTypeDef *hi2c);
+    bool (*pt_soft_reset)(void);
+    bool (*pt_get_sensor_data)(float *temperature, float *pressure);
+    bool (*pt_ping)(I2C_HandleTypeDef *hi2c);
+} pressure_temperature_sensor = {NULL, NULL, NULL, NULL};
 
 /* ------------------------------------------------------------------------ */
 static inline bool SaveRecordToSD(FIL *file, Weather_Data_Packed_t *data)
@@ -183,7 +191,7 @@ static inline void Reinitalize(void)
             system_ready_status.modbus_ready = modbus_init(&huart1);
     }
     if (!system_ready_status.bmp390_ready)
-        system_ready_status.bmp390_ready = bmp390_init(&hi2c2);
+        system_ready_status.bmp390_ready = pressure_temperature_sensor.pt_init(&hi2c2);
     if (!system_ready_status.sht45_ready)
         system_ready_status.sht45_ready = sht45_init(&hi2c2);
     if (!system_ready_status.fram_ready)
@@ -207,7 +215,7 @@ static inline void SensorUpdate(void)
     uint16_t light_par;
 
     if (system_ready_status.bmp390_ready)
-        system_ready_status.bmp390_ready = bmp390_get_sensor_data(&bmp390_temperature, &bmp390_pressure);
+        system_ready_status.bmp390_ready = pressure_temperature_sensor.pt_get_sensor_data(&bmp390_temperature, &bmp390_pressure);
     else
     {
         bmp390_temperature = 0.0f;
@@ -433,7 +441,21 @@ void maintask(void *params)
     system_ready_status.fram_ready = DB_Init(&hspi1);
 
     // 3. BMP390 and SHT41
-    system_ready_status.bmp390_ready = bmp390_init(&hi2c2);
+    if(ms5611_ping(&hi2c2))
+    {
+        pressure_temperature_sensor.pt_init = ms5611_init;
+        pressure_temperature_sensor.pt_soft_reset = ms5611_soft_reset;
+        pressure_temperature_sensor.pt_get_sensor_data = ms5611_get_sensor_data;
+        pressure_temperature_sensor.pt_ping = ms5611_ping;
+    }
+    else
+    {
+        pressure_temperature_sensor.pt_init = bmp390_init;
+        pressure_temperature_sensor.pt_soft_reset = bmp390_soft_reset;
+        pressure_temperature_sensor.pt_get_sensor_data = bmp390_get_sensor_data;
+        pressure_temperature_sensor.pt_ping = bmp390_ping;
+    }
+    system_ready_status.bmp390_ready = pressure_temperature_sensor.pt_init(&hi2c2);
     system_ready_status.sht45_ready = sht45_init(&hi2c2);
 
     // 4. Real-time clock (RTC)

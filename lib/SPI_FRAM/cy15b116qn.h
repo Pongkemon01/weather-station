@@ -18,7 +18,9 @@
 /* ---- Device parameters ---------------------------------------- */
 #define FRAM_TIMEOUT    100u                                /* ms per SPI transaction       */
 #define FRAM_ADDR_BITS  21u                                 /* 2 Mb = 2^21 addressable bytes */
+#ifndef FRAM_MAX_ADDR
 #define FRAM_MAX_ADDR   ((uint32_t)((1UL << FRAM_ADDR_BITS) - 1UL))   /* 0x001FFFFF          */
+#endif /* FRAM_MAX_ADDR */
 #define FRAM_SPECIAL_SECTOR_SIZE  256u                      /* Special sector is exactly 256 bytes */
 
 #ifdef __cplusplus
