@@ -82,10 +82,10 @@ void MX_RTC_Init(void)
     }
     /* USER CODE BEGIN RTC_Init 2 */
 
-    // Configure wakeup timer: 1 Hz clock source, counter = 0 → period = 1 second
+    // Configure wakeup timer: 1 Hz clock source, counter = 2047 → period = 1 second
     // DO NOT enable NVIC here — maintask() will call HAL_NVIC_EnableIRQ()
     // Reference: RM0351 §38.5.6, stm32l4xx_hal_rtc_ex.c
-    if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 0,
+    if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 2047,
                                     RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
     {
         Error_Handler();

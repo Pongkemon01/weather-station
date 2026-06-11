@@ -56,6 +56,7 @@
  */
 
 #include "modbus.h"
+#include "cmsis_os.h"
 #include "stm32l4xx_ll_crc.h"
 
 /* ─────────────────────────── Configuration ──────────────────────────────── */
@@ -181,6 +182,8 @@ bool modbus_read_register(uint8_t addr, uint16_t reg_num,
     /* Transmit */
     if (!UART_Sys_Send(modbus_ctx, tx_packet, 8u, RS485_TIMEOUT_MS))
         return false;
+
+    osDelay(10); /* A short delay to ensure the frame is transmitted and DE is de-asserted */
 
     /*
      * BUG-M5 fix: flush any echo that the RS-485 transceiver placed in the

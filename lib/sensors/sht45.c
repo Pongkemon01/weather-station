@@ -25,6 +25,9 @@ static bool sht45_get_reg(uint8_t reg_addr, uint8_t *reg_data, uint32_t len)
     /* Read raw data */
     if (HAL_I2C_Master_Transmit(hsht45, dev_addr, &reg_addr, 1, I2C_TIMEOUT) != HAL_OK)
         return false;
+
+    my_delay(10); // Short delay to ensure the sensor is ready for the next operation
+
     if (HAL_I2C_Master_Receive(hsht45, dev_addr, reg_data, len, I2C_TIMEOUT) != HAL_OK)
         return false;
 
@@ -64,7 +67,7 @@ bool sht45_init(I2C_HandleTypeDef *hi2c)
 
     /* Reset the sensor */
     buff = SHT45_REG_SOFT_RESET;
-    if(!(HAL_I2C_Master_Transmit(hsht45, dev_addr, &buff, 1, I2C_TIMEOUT)))
+    if(HAL_I2C_Master_Transmit(hsht45, dev_addr, &buff, 1, I2C_TIMEOUT) != HAL_OK)
     {
         hsht45 = NULL;
         return false;

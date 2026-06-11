@@ -157,7 +157,7 @@
 #define BMP3_CMD_FIFO_FLUSH 0xB0
 
 /* Register Trim Variables */
-typedef struct
+typedef struct __attribute__((packed))
 {
     uint16_t par_t1;
     uint16_t par_t2;
@@ -424,8 +424,8 @@ bool bmp390_get_sensor_data(float *temperature, float *pressure)
     }
 
     /* Parse data */
-    adc_press = (uint32_t)((uint32_t)buf[0] << 16) | ((uint32_t)buf[1] << 8) | (uint32_t)buf[2];
-    adc_temp = (uint32_t)((uint32_t)buf[3] << 16) | ((uint32_t)buf[4] << 8) | (uint32_t)buf[5];
+    adc_press = (uint32_t)((uint32_t)buf[2] << 16) | ((uint32_t)buf[1] << 8) | (uint32_t)buf[0];
+    adc_temp = (uint32_t)((uint32_t)buf[5] << 16) | ((uint32_t)buf[4] << 8) | (uint32_t)buf[3];
 
     /* Compensate data */
     *temperature = bmp390_compensate_temperature(adc_temp);
