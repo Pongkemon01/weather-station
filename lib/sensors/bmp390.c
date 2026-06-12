@@ -237,7 +237,7 @@ static bool bmp390_get_calib_data(void)
     bmp390_calib_data.par_p4 = (float)(bmp390_raw_calib_data.par_p4) / 137438953472.0f;           // par_p4 / (2^37)
     bmp390_calib_data.par_p5 = (float)(bmp390_raw_calib_data.par_p5) * 8.0f;                      // par_p5 / (2^-3) = par_p5 * (2^3)
     bmp390_calib_data.par_p6 = (float)(bmp390_raw_calib_data.par_p6) / 64.0f;                     // par_p6 / (2^6)
-    bmp390_calib_data.par_p7 = (float)(bmp390_raw_calib_data.par_p7) / 156.0f;                    // par_p7 / (2^8)
+    bmp390_calib_data.par_p7 = (float)(bmp390_raw_calib_data.par_p7) / 256.0f;                    // par_p7 / (2^8)
     bmp390_calib_data.par_p8 = (float)(bmp390_raw_calib_data.par_p8) / 32768.0f;                  // par_p8 / (2^15)
     bmp390_calib_data.par_p9 = (float)(bmp390_raw_calib_data.par_p9) / 281474976710656.0f;        // par_p9 / (2^48)
     bmp390_calib_data.par_p10 = (float)(bmp390_raw_calib_data.par_p10) / 281474976710656.0f;      // par_p10 / (2^48)
@@ -268,6 +268,10 @@ static float bmp390_compensate_pressure(uint32_t adc_press)
     /* Variable to store the compensated pressure */
     float comp_press;
 
+    /* Helper variables for pressure compensation */
+    float t_lin_squared;
+    float t_lin_cubed;
+
     /* Temporary variables used for compensation */
     float partial_data1;
     float partial_data2;
@@ -277,15 +281,19 @@ static float bmp390_compensate_pressure(uint32_t adc_press)
     float partial_out2;
 
     raw_press = (float)adc_press;
+    t_lin_squared = bmp390_calib_data.t_lin * bmp390_calib_data.t_lin;
+    t_lin_cubed = t_lin_squared * bmp390_calib_data.t_lin;
+
+    /* Pressure compensation */
 
     partial_data1 = bmp390_calib_data.par_p6 * bmp390_calib_data.t_lin;
-    partial_data2 = bmp390_calib_data.par_p7 * (bmp390_calib_data.t_lin * bmp390_calib_data.t_lin);
-    partial_data3 = bmp390_calib_data.par_p8 * (bmp390_calib_data.t_lin * bmp390_calib_data.t_lin * bmp390_calib_data.t_lin);
+    partial_data2 = bmp390_calib_data.par_p7 * t_lin_squared;
+    partial_data3 = bmp390_calib_data.par_p8 * t_lin_cubed;
     partial_out1 = bmp390_calib_data.par_p5 + partial_data1 + partial_data2 + partial_data3;
 
     partial_data1 = bmp390_calib_data.par_p2 * bmp390_calib_data.t_lin;
-    partial_data2 = bmp390_calib_data.par_p3 * (bmp390_calib_data.t_lin * bmp390_calib_data.t_lin);
-    partial_data3 = bmp390_calib_data.par_p4 * (bmp390_calib_data.t_lin * bmp390_calib_data.t_lin * bmp390_calib_data.t_lin);
+    partial_data2 = bmp390_calib_data.par_p3 * t_lin_squared;
+    partial_data3 = bmp390_calib_data.par_p4 * t_lin_cubed;
     partial_out2 = raw_press * (bmp390_calib_data.par_p1 + partial_data1 + partial_data2 + partial_data3);
 
     partial_data1 = raw_press * raw_press;

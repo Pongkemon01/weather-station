@@ -44,35 +44,34 @@
 
 #include "i2c.h"
 #include "ui.h"
-#include "watchdog_task.h"
 
 /* -------------------------------------------------------------------------- */
 /* Module-private state                                                         */
 /* -------------------------------------------------------------------------- */
-static uint8_t      led_blinking_counter;
-static uint8_t      previous_sw_status;
-       UI_Interface_t ui_interface = {0};   /* extern in main.h */
+static uint8_t led_blinking_counter;
+static uint8_t previous_sw_status;
+UI_Interface_t ui_interface = {0}; /* extern in main.h */
 
 /* -------------------------------------------------------------------------- */
 void uitask(void *params)
 {
     (void)params;
 
-    static int8_t wdt_id;
-    wdt_id = wdt_register("uitask");
+    // static int8_t wdt_id;
+    // wdt_id = wdt_register("uitask");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(20);   /* 20 ms period */
+    const TickType_t xFrequency = pdMS_TO_TICKS(20); /* 20 ms period */
 
-    previous_sw_status   = 0u;
+    previous_sw_status = 0u;
     led_blinking_counter = 0u;
 
     /* ── Initialise shared data structure ─────────────────────────────────── */
     ui_interface.mutex = xSemaphoreCreateMutex();
-    if (ui_interface.mutex == NULL)
-        LED_DEBUG_RED_ON();
-    else
-        LED_DEBUG_RED_OFF();
+    // if (ui_interface.mutex == NULL)
+    //     LED_DEBUG_RED_ON();
+    // else
+    //     LED_DEBUG_RED_OFF();
 
     if (ui_interface.mutex != NULL && system_ready_status.ui_ready)
         ui_lcd_clear();
@@ -81,7 +80,7 @@ void uitask(void *params)
     while (1)
     {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
-        wdt_kick(wdt_id);
+        // wdt_kick(wdt_id);
 
         if (!system_ready_status.ui_ready)
         {
@@ -90,9 +89,9 @@ void uitask(void *params)
             {
                 ui_lcd_clear();
                 ui_led_set_value(0);
-                LED_DEBUG_RED_OFF();
+                // LED_DEBUG_RED_OFF();
             }
-            continue;  /* nothing else to do until UI is ready */
+            continue; /* nothing else to do until UI is ready */
         }
 
         /* ── 1. Read & debounce switches ─────────────────────────────────── */
@@ -109,7 +108,7 @@ void uitask(void *params)
          *
          * The switches are active-low; after inversion a '1' bit == pressed.
          */
-        uint8_t current_sw_status = (~ui_key_status()) & 0x0Fu;
+        uint8_t current_sw_status = ui_key_status() & 0x0Fu;
 
         /*
          * For each bit: if it has been stable (curr == prev) take the stable
@@ -117,16 +116,16 @@ void uitask(void *params)
          * clear a held key.
          */
         if ((current_sw_status & 0x01u) == (previous_sw_status & 0x01u))
-            ui_interface.key_menu  = (current_sw_status & 0x01u) != 0u;
+            ui_interface.key_menu = (current_sw_status & 0x01u) != 0u;
 
         if ((current_sw_status & 0x02u) == (previous_sw_status & 0x02u))
             ui_interface.key_enter = (current_sw_status & 0x02u) != 0u;
 
         if ((current_sw_status & 0x04u) == (previous_sw_status & 0x04u))
-            ui_interface.key_down  = (current_sw_status & 0x04u) != 0u;
+            ui_interface.key_down = (current_sw_status & 0x04u) != 0u;
 
         if ((current_sw_status & 0x08u) == (previous_sw_status & 0x08u))
-            ui_interface.key_up    = (current_sw_status & 0x08u) != 0u;
+            ui_interface.key_up = (current_sw_status & 0x08u) != 0u;
 
         previous_sw_status = current_sw_status;
 
@@ -140,17 +139,29 @@ void uitask(void *params)
         /* Red LED */
         switch (ui_interface.led_red)
         {
-        case LED_ON:    ui_led_red_on();                          break;
-        case LED_BLINK: blink_on ? ui_led_red_on() : ui_led_red_off(); break;
-        default:        ui_led_red_off();                         break;
+        case LED_ON:
+            ui_led_red_on();
+            break;
+        case LED_BLINK:
+            blink_on ? ui_led_red_on() : ui_led_red_off();
+            break;
+        default:
+            ui_led_red_off();
+            break;
         }
 
         /* Green LED */
         switch (ui_interface.led_green)
         {
-        case LED_ON:    ui_led_green_on();                              break;
-        case LED_BLINK: blink_on ? ui_led_green_on() : ui_led_green_off(); break;
-        default:        ui_led_green_off();                             break;
+        case LED_ON:
+            ui_led_green_on();
+            break;
+        case LED_BLINK:
+            blink_on ? ui_led_green_on() : ui_led_green_off();
+            break;
+        default:
+            ui_led_green_off();
+            break;
         }
 
         /* ── 3-6. LCD update (backlight, cursor, content, cursor pos) ─────── */
@@ -163,11 +174,11 @@ void uitask(void *params)
         if (xSemaphoreTake(ui_interface.mutex, pdMS_TO_TICKS(100)) == pdTRUE)
         {
             /* Snapshot volatile fields while mutex is held */
-            const bool bk_on         = ui_interface.lcd_bk_on;
-            const bool cursor_on      = ui_interface.lcd_cursor_on;
-            const uint8_t cursor_row  = ui_interface.lcd_cursor_row;
-            const uint8_t cursor_col  = ui_interface.lcd_cursor_col;
-            const bool need_update    = ui_interface.lcd_need_updated;
+            bool bk_on = ui_interface.lcd_bk_on;
+            bool cursor_on = ui_interface.lcd_cursor_on;
+            uint8_t cursor_row = ui_interface.lcd_cursor_row;
+            uint8_t cursor_col = ui_interface.lcd_cursor_col;
+            bool need_update = ui_interface.lcd_need_updated;
 
             /* Backlight */
             bk_on ? ui_lcd_bk_on() : ui_lcd_bk_off();

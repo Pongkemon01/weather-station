@@ -58,7 +58,7 @@ static bool ui_lcd_write_command(uint8_t cmd)
     buff[2] = cmd_low | 0x10 | current_bk_value;         // Set E
     buff[3] = cmd_low | current_bk_value;                // Clear E
 
-    return(mcp23017_bitbanging_write_data(buff, 4));
+    return(mcp23017_bitbanging_write_port_a(buff, 4));
 }
 
 static bool ui_lcd_write_data(uint8_t data)
@@ -74,24 +74,47 @@ static bool ui_lcd_write_data(uint8_t data)
     buff[2] = data_low | 0x50 | current_bk_value;        // Set E, set RS
     buff[3] = data_low | current_bk_value;               // Clear E, set RS
 
-    return(mcp23017_bitbanging_write_data(buff, 4));
+    return(mcp23017_bitbanging_write_port_a(buff, 4));
+}
+
+/**
+ * @brief  Initializes the DWT Cycle Counter.
+ * MUST be called once before using DWT_Delay_us.
+ */
+static void DWT_Init(void)
+{
+    /* 1. Enable the TRC (Trace Core). This is required to use DWT */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+
+    /* 2. Reset the cycle counter to 0 */
+    DWT->CYCCNT = 0;
+
+    /* 3. Enable the cycle counter */
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 }
 
 /**
  * @brief  This function provides a delay (in microseconds)
  * @param  microseconds: delay in microseconds
  */
-static inline void DWT_Delay_us(volatile uint32_t microseconds)
+static inline void DWT_Delay_us(uint32_t microseconds)
 {
-  uint32_t clk_cycle_start = DWT->CYCCNT;
+    /* Capture the start time */
+    uint32_t clk_cycle_start = DWT->CYCCNT;
 
-  /* Go to number of cycles for system */
-  microseconds *= (HAL_RCC_GetHCLKFreq() / 1000000);
+    /* Calculate the total number of cycles to wait.
+       HAL_RCC_GetHCLKFreq() / 1000000 gives cycles per microsecond. */
+    uint32_t delay_cycles = microseconds * (HAL_RCC_GetHCLKFreq() / 1000000);
 
-  /* Delay till end */
-  while ((DWT->CYCCNT - clk_cycle_start) < microseconds);
+    /* Delay till end. Unsigned arithmetic handles 32-bit overflow automatically. */
+    while ((DWT->CYCCNT - clk_cycle_start) < delay_cycles)
+    {
+        /* Optional: Add a __NOP() to prevent the compiler from optimizing
+           out an empty loop, though the volatile nature of DWT->CYCCNT
+           usually prevents this anyway. */
+        __NOP();
+    }
 }
-
 /* Public API */
 /* ----------------------------------------------------------- */
 bool ui_init(I2C_HandleTypeDef *hi2c)
@@ -99,12 +122,17 @@ bool ui_init(I2C_HandleTypeDef *hi2c)
     if(!(mcp23017_init(hi2c)))
         return false;
 
+    /* Init DWT */
+    DWT_Init();
+
     /* Init LED */
     if(!(ui_led_set_value(0x00)))
         return false;
 
     /* Init LCD */
     if(!(mcp23017_write_port_a(0x00)))
+        return false;
+    if(!(mcp23017_write_port_a(0x20)))
         return false;
 
     if(!(ui_lcd_write_command(0x30)))   // 0x30 means wake-up

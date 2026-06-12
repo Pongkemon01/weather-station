@@ -63,7 +63,7 @@ bool mcp23017_init(I2C_HandleTypeDef *hi2c)
     buff[2] = 0x0F;     // IODIRB = 0x0F (Bit 0 - 3 are input, bit 4 - 7 are output)
     buff[3] = 0x00;     // IPOLA = 0x00 (No polarity inversion)
     buff[4] = 0x0F;     // IPOLB = 0x0F (Bit 0 - 3 are inverted from the actual state)
-    if(!(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, buff, 5, I2C_TIMEOUT)))
+    if(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, buff, 5, I2C_TIMEOUT) != HAL_OK)
     {
         hmcp23017 = NULL;
         return false;
@@ -73,7 +73,7 @@ bool mcp23017_init(I2C_HandleTypeDef *hi2c)
     buff[0] = MCP23017_REG_GPPUA;
     buff[1] = 0x00;     // GPPUA = 0x00 (No pull-up)
     buff[2] = 0x0F;     // GPPUB = 0x0F (Pull-up on all input pins)
-    if(!(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, buff, 3, I2C_TIMEOUT)))
+    if(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, buff, 3, I2C_TIMEOUT) != HAL_OK)
     {
         hmcp23017 = NULL;
         return false;
@@ -82,7 +82,7 @@ bool mcp23017_init(I2C_HandleTypeDef *hi2c)
     /* Disable address auto-incrementing */
     buff[0] = MCP23017_REG_IOCON;
     buff[1] = 0x02;     // IOCON.BANK = 0
-    if(!(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, buff, 2, I2C_TIMEOUT)))
+    if(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, buff, 2, I2C_TIMEOUT) != HAL_OK)
     {
         hmcp23017 = NULL;
         return false;
@@ -92,13 +92,16 @@ bool mcp23017_init(I2C_HandleTypeDef *hi2c)
 }
 
 /* ---------------------------------------------------------------- */
-bool mcp23017_bitbanging_write_data(uint8_t *data, uint16_t len)
+bool mcp23017_bitbanging_write_port_a(uint8_t *data, uint16_t len)
 {
     if(hmcp23017 == NULL)
         return false;
 
-    if(!(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, data, len, I2C_TIMEOUT)))
-        return false;
+    for(int i = 0; i < len; i++)
+    {
+        if(!mcp23017_write_port_a(data[i]))
+            return false;
+    }
 
     return true;
 }
@@ -113,7 +116,7 @@ bool mcp23017_write_port_a(uint8_t data)
 
     buff[0] = MCP23017_REG_GPIOA;
     buff[1] = data;
-    if(!(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, buff, 2, I2C_TIMEOUT)))
+    if(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, buff, 2, I2C_TIMEOUT) != HAL_OK)
         return false;
 
     return true;
@@ -129,7 +132,7 @@ bool mcp23017_write_port_b(uint8_t data)
 
     buff[0] = MCP23017_REG_GPIOB;
     buff[1] = data;
-    if(!(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, buff, 2, I2C_TIMEOUT)))
+    if(HAL_I2C_Master_Transmit(hmcp23017, dev_addr, buff, 2, I2C_TIMEOUT) != HAL_OK)
         return false;
 
     return true;
