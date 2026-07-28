@@ -47,6 +47,7 @@
 
 extern osThreadId_t MainTaskHandle;      // MainTaskHandle was casted from TaskHandle_t to osThreadId_t
 extern osThreadId_t SslUploadTaskHandle; // SslUploadTaskHandle was casted from TaskHandle_t to osThreadId_t
+extern int8_t g_wdt_id_maintask;         // Watchdog slot ID for maintask
 
 /* Current weather data */
 Meta_Data_t db_meta_data;
@@ -107,37 +108,60 @@ static inline bool SaveRecordToSD(FIL *file, Weather_Data_Packed_t *data)
     if (f_write(file, line, len, &written) != FR_OK || written != len)
         return false;
 
+    f_sync(file);
     return true;
 }
 
 /* ------------------------------------------------------------------------ */
-#if __STDC_VERSION__ >= 201112L || __cplusplus >= 201103L
-#define U16_LITERAL(x) u##x
-#else
-// Fallback for older compilers - may not be strictly UTF-16
-#define U16_LITERAL(x) L##x
-#endif
-static inline void SaveToSD(void)
+// #if __STDC_VERSION__ >= 201112L || __cplusplus >= 201103L
+// #define U16_LITERAL(x) u##x
+// #else
+// // Fallback for older compilers - may not be strictly UTF-16
+// #define U16_LITERAL(x) L##x
+// #endif
+static void SaveToSD(void)
 {
     static const char *header = "Date Time,Temperature (C),Humidity (%Rh),Pressure (kPa),Light PAR (umol/s*m^2),Rainfall (mm/hr),Dew Point (C),BUS\r\n";
-    static const TCHAR *filename = U16_LITERAL("weather_data.csv");
+    static const char *filename = "weather_data.csv";
     FIL file;
     Weather_Data_Packed_t data;
     uint16_t total_to_sd, i;
 
+    FRESULT res;
+    FATFS fatfs;
+
     if (!(system_ready_status.sd_detected) || system_ready_status.sd_write_protected)
         return;
-    if (f_open(&file, filename, FA_OPEN_APPEND | FA_WRITE) != FR_OK)
+
+    res = f_mount(&fatfs, "", 1);
+    if (res != FR_OK)
     {
+        printf("Failed to mount SD card: %d\r\n", res);
+        return;
+    }
+
+    if (f_open(&file, filename, FA_OPEN_EXISTING | FA_WRITE | FA_READ) != FR_OK)
+    {
+        printf("Failed to open file for appending, trying to create a new file...\r\n");
         if (f_open(&file, filename, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK) // Try to create a new file if failed to open existing file
+        {
+            printf("Failed to create file\r\n");
             return;
+        }
 
         // Write header line for new file
         f_write(&file, header, strlen(header), NULL);
         f_sync(&file);
     }
+    else
+    {
+        f_lseek(&file, f_size(&file)); // Seek to the end of the file
+    }
 
     total_to_sd = DB_GetTotalToSD();
+    if (total_to_sd == 0u)
+        return;
+
     for (i = 0; i < total_to_sd; i++)
     {
         if (!(system_ready_status.fram_ready = DB_ToSDwithOffset(i, &data)))
@@ -148,6 +172,14 @@ static inline void SaveToSD(void)
     }
     f_close(&file);
 
+    res = f_mount(NULL, "", 0); // Unmount the SD card
+    if (res != FR_OK)
+    {
+        printf("Failed to unmount SD card: %d\r\n", res);
+        return;
+    }
+
+    printf("Saved %u records to SD card, %u records remaining in FRAM\r\n", i, total_to_sd - i);
     if (i > 0)
         system_ready_status.fram_ready = DB_IncSDTail(i); // Update SD tail in database after successfully saving "i" records to SD card
 }
@@ -190,6 +222,7 @@ static inline void Reinitalize(void)
         if (!system_ready_status.modbus_ready)
             system_ready_status.modbus_ready = modbus_init(&huart1);
     }
+
     if (!system_ready_status.bmp390_ready)
         system_ready_status.bmp390_ready = pressure_temperature_sensor.pt_init(&hi2c2);
     if (!system_ready_status.sht45_ready)
@@ -213,9 +246,13 @@ static inline void SensorUpdate(void)
     float bmp390_temperature, bmp390_pressure;
     float rainfall;
     uint16_t light_par;
+    static bool first_run = true;
 
     if (system_ready_status.bmp390_ready)
+    {
         system_ready_status.bmp390_ready = pressure_temperature_sensor.pt_get_sensor_data(&bmp390_temperature, &bmp390_pressure);
+        bmp390_pressure /= 1000.0f; // Convert PA to kPA
+    }
     else
     {
         bmp390_temperature = 0.0f;
@@ -231,6 +268,7 @@ static inline void SensorUpdate(void)
     }
 
     system_ready_status.light_ok = get_light(&light_par);
+    my_delay(4); /* Wait for modbus to be settled */
     system_ready_status.rainfall_ok = get_rain(&rainfall);
 
     /* Processing sensors data */
@@ -240,29 +278,41 @@ static inline void SensorUpdate(void)
     sht45_humidity += db_meta_data.humidity_adj;
     bmp390_temperature += db_meta_data.temperature_adj;
     bmp390_pressure += db_meta_data.pressure_adj;
-    {   /* saturating signed add for uint16_t + int16_t */
+    {
+        /* saturating signed add for uint16_t + int16_t */
         int32_t lp = (int32_t)light_par + (int32_t)db_meta_data.light_adj;
-        light_par = (lp < 0) ? 0u : (lp > 65535) ? 65535u : (uint16_t)lp;
+        light_par = (lp < 0) ? 0u : (lp > 65535) ? 65535u
+                                                 : (uint16_t)lp;
     }
 
     // EMA fusion
-    weather_data.temperature = ema(weather_data.temperature, (sht45_temperature + bmp390_temperature) / 2.0f);
-    weather_data.humidity = ema(weather_data.humidity, sht45_humidity);
-    bmp390_pressure /= 1000.0f; // Convert PA to kPA
-    weather_data.pressure = ema(weather_data.pressure, bmp390_pressure);
-
-    // EMA simulation for uint16_t from light sensor
-    if (light_par & 1)
-        light_par = (light_par >> 1) + 1u; // div by 2 and round-up
+    if (first_run)
+    {
+        weather_data.temperature = sht45_temperature;
+        weather_data.humidity = sht45_humidity;
+        weather_data.pressure = bmp390_pressure;
+        weather_data.light_par = light_par;
+        first_run = false;
+    }
     else
-        light_par >>= 1;
+    {
+        weather_data.temperature = ema(weather_data.temperature, (sht45_temperature + bmp390_temperature) / 2.0f);
+        weather_data.humidity = ema(weather_data.humidity, sht45_humidity);
+        weather_data.pressure = ema(weather_data.pressure, bmp390_pressure);
 
-    if (weather_data.light_par & 1)
-        weather_data.light_par = (weather_data.light_par >> 1) + 1u; // div by 2 and round-up
-    else
-        weather_data.light_par >>= 1;
+        // EMA simulation for uint16_t from light sensor
+        if (light_par & 1)
+            light_par = (light_par >> 1) + 1u; // div by 2 and round-up
+        else
+            light_par >>= 1;
 
-    weather_data.light_par += light_par;
+        if (weather_data.light_par & 1)
+            weather_data.light_par = (weather_data.light_par >> 1) + 1u; // div by 2 and round-up
+        else
+            weather_data.light_par >>= 1;
+
+        weather_data.light_par += light_par;
+    }
 
     // Process rain fall. Accumulate for 1 hour
     accum_rainfall += rainfall;
@@ -323,8 +373,8 @@ static inline bool BUSCalc(float *BUS)
         return false; // Database errors
 
     // Calculate total records for 1 day
-    total_data = 24u * (60u / (uint16_t)(db_meta_data.sampling_interval));   // Estimate total data for 24 hours.
-    if(DB_GetTotalData() < total_data)
+    total_data = 24u * (60u / (uint16_t)(db_meta_data.sampling_interval)); // Estimate total data for 24 hours.
+    if (DB_GetTotalData() < total_data)
         return false; // Not enough data for calculation
 
     // Calculate the starting record number of data
@@ -349,7 +399,7 @@ static inline bool BUSCalc(float *BUS)
 
         db_index = (db_index + 1) & 0x7FFF; /* advance regardless — was bug: skipped records re-read same slot */
 
-        if(db_data.time_stamp < start_epoch)
+        if (db_data.time_stamp < start_epoch)
             continue; // Skip old data that is outside the 24-hour window
 
         total_valid_data++;
@@ -364,7 +414,7 @@ static inline bool BUSCalc(float *BUS)
     Tavg /= (float)total_valid_data;
     total_data_per_hr = total_valid_data / 24u; // Count in the unit of hour (not per sampling)
     if (total_data_per_hr == 0u)
-        return false; // Too few records to form even 1 sample/hour — avoid divide-by-zero
+        return false;        // Too few records to form even 1 sample/hour — avoid divide-by-zero
     Rh /= total_data_per_hr; // Count in the unit of hour (not per sampling)
     Lw /= total_data_per_hr;
 
@@ -416,9 +466,13 @@ void HAL_RTCEx_WakeUpTimerEventCallback(RTC_HandleTypeDef *hrtc)
 void maintask(void *params)
 {
     (void)params;
+    bool sw1_status = false;
+    bool sw2_status = false;
+    bool sw1_prev_status = false;
+    bool sw2_prev_status = false;
 
-    static int8_t wdt_id;
-    wdt_id = wdt_register("maintask");
+    // static int8_t wdt_id;
+    // wdt_id = wdt_register("maintask");
 
     /* Second stage of initialization : After RTOS scheduler */
     /* Now, all ui calls must be done through ui_task */
@@ -426,9 +480,12 @@ void maintask(void *params)
     ui_interface.led_red = LED_OFF;
     ui_interface.led_green = LED_OFF;
 
+    printf("\r\n===============================================\r\n");
+    printf("Main task started\r\n");
     // 1. UART subsystem
     if ((system_ready_status.usart_ready = UART_Sys_Init()))
     {
+        printf("UART subsystem initialized\r\n");
         // 2. A7670E Modem
         if ((system_ready_status.a7670_ready = modem_init(&huart3)))
             LED_DEBUG_BLUE_ON();
@@ -438,15 +495,22 @@ void maintask(void *params)
     }
 
     // 2. Weather database
+    printf("Initializing FRAM database...");
     system_ready_status.fram_ready = DB_Init(&hspi1);
+    if (system_ready_status.fram_ready)
+        printf("PASS\r\n");
+    else
+        printf("FAILED!!\r\n");
 
+    printf("Initializing I2C bus...\r\n");
     // 3. BMP390 and SHT41
-    if(ms5611_ping(&hi2c2))
+    if (ms5611_ping(&hi2c2))
     {
         pressure_temperature_sensor.pt_init = ms5611_init;
         pressure_temperature_sensor.pt_soft_reset = ms5611_soft_reset;
         pressure_temperature_sensor.pt_get_sensor_data = ms5611_get_sensor_data;
         pressure_temperature_sensor.pt_ping = ms5611_ping;
+        printf("MS5611 detected on I2C bus\r\n");
     }
     else
     {
@@ -454,50 +518,103 @@ void maintask(void *params)
         pressure_temperature_sensor.pt_soft_reset = bmp390_soft_reset;
         pressure_temperature_sensor.pt_get_sensor_data = bmp390_get_sensor_data;
         pressure_temperature_sensor.pt_ping = bmp390_ping;
+        printf("BMP390 detected on I2C bus\r\n");
     }
     system_ready_status.bmp390_ready = pressure_temperature_sensor.pt_init(&hi2c2);
     system_ready_status.sht45_ready = sht45_init(&hi2c2);
 
     // 4. Real-time clock (RTC)
+    printf("Syncing time with best source...\r\n");
     if (datetime_sync_with_best_source() == TIME_SOURCE_NONE)
     {
+        printf("Failed to sync time with any source.\r\n");
         system_ready_status.datetime_ready = false;
         ui_interface.led_red = LED_ON;
         LED_DEBUG_YELLOW_ON();
     }
     else
     {
+        printf("Time synced successfully.\r\n");
         system_ready_status.datetime_ready = true;
         ui_interface.led_red = LED_OFF;
         LED_DEBUG_YELLOW_OFF();
     }
 
     /* Snapshot current metadata */
+    printf("Reading metadata from FRAM...\r\n");
     (void)DB_GetMeta(&db_meta_data);
 
     // Enable 1Hz interrupt
+    printf("Enabling RTC 1Hz interrupt...\r\n");
     HAL_NVIC_EnableIRQ(RTC_WKUP_IRQn);
+
+    sw1_status = SW1_DEBUG_STATUS();
+    sw2_status = SW2_DEBUG_STATUS();
+    sw1_prev_status = sw1_status;
+    sw2_prev_status = sw2_status;
+
+    printf("Main task initialization completed.\r\n");
 
     /* Infinite Loop */
     while (1)
     {
         /* Wait for RTC 1 Hz notification; kick watchdog every 500 ms while idle. */
         while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(WDT_PERIOD_MS)) == 0u)
-            wdt_kick(wdt_id);
-        wdt_kick(wdt_id);
+        {
+            wdt_kick(g_wdt_id_maintask);
+        }
+        wdt_kick(g_wdt_id_maintask);
+
+        printf("\r\n>>>> Main iteration started\r\n");
 
         /* Main operation for every 1 second */
         /* Update SD Card status */
         system_ready_status.sd_detected = SD_INSERTED_STATUS();
         system_ready_status.sd_write_protected = SD_WRITE_PROTECTED_STATUS();
 
+        /* SW1 status refresh */
+        if(!sw1_prev_status && SW1_DEBUG_STATUS())
+            sw1_status = true;
+        else
+            sw1_status = false;
+        sw1_prev_status = SW1_DEBUG_STATUS();
+
+        if(!sw2_prev_status && SW2_DEBUG_STATUS())
+            sw2_status = true;
+        else
+            sw2_status = false;
+        sw2_prev_status = SW2_DEBUG_STATUS();
+
+
+
+        /* Check if the A7670 modem is still ready 15 minutes before the upload hour */
+        if (!system_ready_status.a7670_ready && (weather_data.sampletime.seconds == 0 &&
+                                                 weather_data.sampletime.minutes == 55 &&
+                                                 (weather_data.sampletime.hours == 23 || weather_data.sampletime.hours == 11)))
+        {
+            if (!modem_is_ready())
+            {
+                printf("A7670 modem lose connection...\r\n");
+                system_ready_status.a7670_ready = false;
+                LED_DEBUG_BLUE_OFF();
+            }
+        }
+
         /* All operation require precise time from the system.
          * If we cannot retrieve correct time, we cannot do any thing.
          */
-        if (!system_ready_status.datetime_ready)
+        /* Sync time if needed or every day (5 minutes before midnight) */
+        if (!system_ready_status.datetime_ready ||
+            (weather_data.sampletime.hours == 23 && weather_data.sampletime.minutes == 55 && weather_data.sampletime.seconds == 0)
+            )
         {
+            if(system_ready_status.a7670_ready)
+                modem_sync_ntp();
+
+            printf("Retrying to sync time with best source...\r\n");
             if (datetime_sync_with_best_source() == TIME_SOURCE_NONE)
             {
+                system_ready_status.datetime_ready = false;
                 ui_interface.led_red = LED_ON;
                 LED_DEBUG_YELLOW_ON();
                 continue; // Still unable to sync time.
@@ -511,6 +628,7 @@ void maintask(void *params)
 
         if (!datetime_get_datetime_from_rtc(&(weather_data.sampletime)))
         {
+            printf("Failed to get time from RTC.\r\n");
             ui_interface.led_red = LED_BLINK;
             LED_DEBUG_RED_ON();
             continue; // Unable to get time from RTC, we cannot do any thing.
@@ -521,6 +639,9 @@ void maintask(void *params)
             LED_DEBUG_RED_OFF();
         }
 
+        printf("Datetime from RTC: %02d-%02d-%04d %02d:%02d:%02d\r\n",
+               weather_data.sampletime.day, weather_data.sampletime.month, weather_data.sampletime.year + 2000,
+               weather_data.sampletime.hours, weather_data.sampletime.minutes, weather_data.sampletime.seconds);
         /* -------------------------------------------------------- */
         /* Re-initialize failed devices */
         Reinitalize();
@@ -531,11 +652,16 @@ void maintask(void *params)
         // Measure sensors every 10 second. Also update metadata
         if (weather_data.sampletime.seconds % 10 == 0)
         {
+            printf("Updating sensor data...\r\n");
             /* Snapshot current metadata*/
             (void)DB_GetMeta(&db_meta_data);
 
             SensorUpdate();
             weather_data.dew_point = DewPointCalc(weather_data.humidity, weather_data.temperature);
+
+            printf("Temperature: %.2f C, Humidity: %.2f %%, Pressure: %.2f kPa, Light PAR: %u umol/s*m^2, Rainfall: %.2f mm/hr, Dew Point: %.2f C\r\n",
+                   weather_data.temperature, weather_data.humidity, weather_data.pressure,
+                   weather_data.light_par, weather_data.rainfall, weather_data.dew_point);
         }
 
         /* BUS calculation on midnight */
@@ -553,6 +679,8 @@ void maintask(void *params)
         {
             Weather_Data_Packed_t data;
 
+            printf("*****Saving current measurement to FRAM database...\r\n");
+
             // Save current measurement to FRAM database
             PackData(&weather_data, &data);
             if (!(system_ready_status.fram_ready = DB_AddData(&data)))
@@ -563,9 +691,18 @@ void maintask(void *params)
             }
 
             // Save unsaved data to SD card
+            printf("SD card status: %s, Write-protected: %s\r\n",
+                   system_ready_status.sd_detected ? "Detected" : "Not Detected",
+                   system_ready_status.sd_write_protected ? "Yes" : "No");
+
             if (system_ready_status.sd_detected && !system_ready_status.sd_write_protected)
             {
+                printf("*****Saving current measurement to SD card...\r\n");
                 SaveToSD();
+            }
+            else
+            {
+                printf("SD card not detected or write-protected. Skipping SD save.\r\n");
             }
         }
 
@@ -575,11 +712,16 @@ void maintask(void *params)
             ui_interface.led_green = LED_BLINK;
 
         /* Trig the SSL upload task to activate twice daily */
-        if (weather_data.sampletime.seconds == 0 &&
+        if ((weather_data.sampletime.seconds == 0 &&
             weather_data.sampletime.minutes == 0 &&
             (weather_data.sampletime.hours == 0 || weather_data.sampletime.hours == 12))
+
+            || sw1_status)  // Manual trig for debug only
         {
+            printf("Triggering SSL upload task...\r\n");
             xTaskNotifyGive(SslUploadTaskHandle);
         }
+
+        // printf("Main loop completed\r\n");
     }
 }

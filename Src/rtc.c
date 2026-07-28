@@ -62,31 +62,31 @@ void MX_RTC_Init(void)
 
     /** Initialize RTC and set the Time and Date
      */
-    sTime.Hours = 0;
-    sTime.Minutes = 0;
-    sTime.Seconds = 0;
-    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    sDate.WeekDay = RTC_WEEKDAY_THURSDAY;
-    sDate.Month = RTC_MONTH_JANUARY;
-    sDate.Date = 1;
-    sDate.Year = 26;
+    // sTime.Hours = 0;
+    // sTime.Minutes = 0;
+    // sTime.Seconds = 0;
+    // sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+    // sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+    // if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+    // {
+    //     Error_Handler();
+    // }
+    // sDate.WeekDay = RTC_WEEKDAY_THURSDAY;
+    // sDate.Month = RTC_MONTH_JANUARY;
+    // sDate.Date = 1;
+    // sDate.Year = 26;
 
-    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
-    {
-        Error_Handler();
-    }
+    // if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+    // {
+    //     Error_Handler();
+    // }
     /* USER CODE BEGIN RTC_Init 2 */
 
     // Configure wakeup timer: 1 Hz clock source, counter = 2047 → period = 1 second
     // DO NOT enable NVIC here — maintask() will call HAL_NVIC_EnableIRQ()
     // Reference: RM0351 §38.5.6, stm32l4xx_hal_rtc_ex.c
     if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 2047,
-                                    RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
+                                    RTC_WAKEUPCLOCK_RTCCLK_DIV16) != HAL_OK)
     {
         Error_Handler();
     }

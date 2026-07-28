@@ -55,8 +55,8 @@
  *         feed + read, now that configuration is done once at init.
  */
 
+#include <stdio.h>
 #include "modbus.h"
-#include "cmsis_os.h"
 #include "stm32l4xx_ll_crc.h"
 
 /* ─────────────────────────── Configuration ──────────────────────────────── */
@@ -67,7 +67,7 @@
  *  The original 1000 ms is kept here to avoid breaking existing callers, but
  *  can safely be reduced to 200 for faster fault detection.
  */
-#define RS485_TIMEOUT_MS    200u
+#define RS485_TIMEOUT_MS 200u
 
 /* ─────────────────────────── Module state ───────────────────────────────── */
 
@@ -126,7 +126,10 @@ bool modbus_init(UART_HandleTypeDef *huart)
 
     modbus_ctx = UART_Sys_Register(huart);
     if (modbus_ctx == NULL)
+    {
+        printf("UART subsystem registration failed\r\n");
         return false;
+    }
 
     /*
      * OPT-M1: Configure hardware CRC unit once.
@@ -165,25 +168,25 @@ bool modbus_read_register(uint8_t addr, uint16_t reg_num,
         return false;
 
     UART_Packet_t rx_pkt;
-    uint16_t      crc;
+    uint16_t crc;
 
     /* Build FC03 request frame */
     tx_packet[0] = addr;
     tx_packet[1] = 0x03u;
     tx_packet[2] = (uint8_t)(reg_num >> 8u);
     tx_packet[3] = (uint8_t)(reg_num & 0xFFu);
-    tx_packet[4] = (uint8_t)(len    >> 8u);
-    tx_packet[5] = (uint8_t)(len    & 0xFFu);
+    tx_packet[4] = (uint8_t)(len >> 8u);
+    tx_packet[5] = (uint8_t)(len & 0xFFu);
 
-    crc           = crc_485(tx_packet, 6u);
-    tx_packet[6]  = (uint8_t)(crc & 0xFFu);   /* CRC low byte first (Modbus §2.5) */
-    tx_packet[7]  = (uint8_t)(crc >> 8u);      /* CRC high byte second             */
+    crc = crc_485(tx_packet, 6u);
+    tx_packet[6] = (uint8_t)(crc & 0xFFu); /* CRC low byte first (Modbus §2.5) */
+    tx_packet[7] = (uint8_t)(crc >> 8u);   /* CRC high byte second             */
 
     /* Transmit */
     if (!UART_Sys_Send(modbus_ctx, tx_packet, 8u, RS485_TIMEOUT_MS))
+    {
         return false;
-
-    osDelay(10); /* A short delay to ensure the frame is transmitted and DE is de-asserted */
+    }
 
     /*
      * BUG-M5 fix: flush any echo that the RS-485 transceiver placed in the
@@ -214,14 +217,13 @@ bool modbus_read_register(uint8_t addr, uint16_t reg_num,
 
         if ((rx_pkt.payload[rx_pkt.length - 2u] == (uint8_t)(crc & 0xFFu)) &&
             (rx_pkt.payload[rx_pkt.length - 1u] == (uint8_t)(crc >> 8u)) &&
-            (rx_pkt.length >= (5u + len * 2u)))           /* validate payload depth */
+            (rx_pkt.length >= (5u + len * 2u))) /* validate payload depth */
         {
             /* Extract register values; data starts at payload[3] (after
              * addr, FC, byte_count). */
             for (uint16_t i = 0u; i < len; i++)
             {
-                data[i] = ((uint16_t)(rx_pkt.payload[(i * 2u) + 3u]) << 8u)
-                         | (uint16_t)(rx_pkt.payload[(i * 2u) + 4u]);
+                data[i] = ((uint16_t)(rx_pkt.payload[(i * 2u) + 3u]) << 8u) | (uint16_t)(rx_pkt.payload[(i * 2u) + 4u]);
             }
             ok = true;
         }
@@ -245,30 +247,31 @@ bool modbus_read_register(uint8_t addr, uint16_t reg_num,
 bool modbus_write_register(uint8_t addr, uint16_t reg_num, uint16_t data)
 {
     UART_Packet_t rx_pkt;
-    uint16_t      crc;
+    uint16_t crc;
 
     /* Build FC06 request frame */
     tx_packet[0] = addr;
     tx_packet[1] = 0x06u;
     tx_packet[2] = (uint8_t)(reg_num >> 8u);
     tx_packet[3] = (uint8_t)(reg_num & 0xFFu);
-    tx_packet[4] = (uint8_t)(data    >> 8u);
-    tx_packet[5] = (uint8_t)(data    & 0xFFu);
+    tx_packet[4] = (uint8_t)(data >> 8u);
+    tx_packet[5] = (uint8_t)(data & 0xFFu);
 
-    crc           = crc_485(tx_packet, 6u);
-    tx_packet[6]  = (uint8_t)(crc & 0xFFu);   /* CRC low byte first  */
-    tx_packet[7]  = (uint8_t)(crc >> 8u);      /* CRC high byte second */
+    crc = crc_485(tx_packet, 6u);
+    tx_packet[6] = (uint8_t)(crc & 0xFFu); /* CRC low byte first  */
+    tx_packet[7] = (uint8_t)(crc >> 8u);   /* CRC high byte second */
 
     /* Transmit */
     if (!UART_Sys_Send(modbus_ctx, tx_packet, 8u, RS485_TIMEOUT_MS))
         return false;
 
     /*
-     * BUG-M5 fix: discard TX echo before waiting for slave response.
+     * BUG-M5 fix: flush any echo that the RS-485 transceiver placed in the
+     * RX DMA buffer while the TX frame was being transmitted.
      */
     UART_Sys_FlushReceive(modbus_ctx);
 
-    /* Wait for slave echo */
+    /* Wait for slave response */
     if (!UART_Sys_Receive(modbus_ctx, &rx_pkt, RS485_TIMEOUT_MS))
         return false;
 

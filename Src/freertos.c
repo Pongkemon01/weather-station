@@ -81,6 +81,13 @@
 
 System_Ready_Status_t system_ready_status;
 
+/* Watchdog slot IDs for tasks defined in this file */
+int8_t g_wdt_id_maintask = -1;
+int8_t g_wdt_id_ssluploadtask = -1;
+int8_t g_wdt_id_uitask = -1;
+int8_t g_wdt_id_ucctask = -1;
+int8_t g_wdt_id_cdc_task = -1;
+
 /*
  * Global FRAM / SPI1 bus mutex.
  * Protects all cy15b116qn driver calls across every task (DB, OTA, etc.).
@@ -93,7 +100,7 @@ SemaphoreHandle_t g_fram_spi_mutex = NULL;
 osThreadId_t MainTaskHandle;
 const osThreadAttr_t MainTask_attributes = {
     .name = "main",
-    .stack_size = 512 * 2,
+    .stack_size = 16384,     /* FATFS Requires 4192 - 8192 bytes of stack */
     .priority = (osPriority_t)osPriorityNormal,
 };
 
@@ -101,7 +108,7 @@ const osThreadAttr_t MainTask_attributes = {
 osThreadId_t UserControlTaskHandle;
 const osThreadAttr_t UserControlTask_attributes = {
     .name = "ucc",
-    .stack_size = 512 * 2,
+    .stack_size = 512,
     .priority = (osPriority_t)osPriorityNormal,
 };
 
@@ -109,7 +116,7 @@ const osThreadAttr_t UserControlTask_attributes = {
 osThreadId_t SslUploadTaskHandle;
 const osThreadAttr_t SslUploadTask_attributes = {
     .name = "sslupload",
-    .stack_size = 512 * 4,
+    .stack_size = 4096,
     .priority = (osPriority_t)osPriorityNormal,
 };
 
@@ -117,7 +124,7 @@ const osThreadAttr_t SslUploadTask_attributes = {
 osThreadId_t UITaskHandle;
 const osThreadAttr_t UITask_attributes = {
     .name = "ui",
-    .stack_size = 512,
+    .stack_size = 512 * 2,
     .priority = (osPriority_t)osPriorityNormal,
 };
 
@@ -125,7 +132,7 @@ const osThreadAttr_t UITask_attributes = {
 osThreadId_t UsbCDCHandle;
 const osThreadAttr_t UsbCDC_attributes = {
     .name = "cdc",
-    .stack_size = CDC_STACK_SIZE,
+    .stack_size = 4096,
     .priority = (osPriority_t)osPriorityHigh1,
 };
 
@@ -143,10 +150,6 @@ const osThreadAttr_t OtaManagerTask_attributes = {
     .stack_size = 512 * 4,
     .priority = (osPriority_t)osPriorityNormal,
 };
-
-/* Watchdog slot IDs for tasks defined in this file */
-static int8_t g_wdt_id_usb_loop;
-static int8_t g_wdt_id_default;
 
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
@@ -182,14 +185,14 @@ extern void watchdog_task(void *params);
 #endif
 PUTCHAR_PROTOTYPE
 {
-  HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 0xFFFF);
-  return ch;
+    HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 0xFFFF);
+    return ch;
 }
 #else
 int _write(int file, char *ptr, int len)
 {
-  HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 0xFFFF);
-  return len;
+    HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 0xFFFF);
+    return len;
 }
 #endif
 
@@ -250,8 +253,12 @@ void MX_FREERTOS_Init(void)
     configASSERT(g_fram_spi_mutex != NULL);
 
     /* Register tasks that are defined in this file (single-threaded context). */
-    g_wdt_id_usb_loop = wdt_register("usb_loop");
-    g_wdt_id_default  = wdt_register("default");
+    //g_wdt_id_maintask = wdt_register("maintask");
+    g_wdt_id_ucctask = wdt_register("ucctask");
+    //g_wdt_id_ssluploadtask = wdt_register("sslupload");
+    g_wdt_id_uitask = wdt_register("uitask");
+    g_wdt_id_cdc_task = wdt_register("cdc_task");
+
     /* USER CODE END RTOS_MUTEX */
 
     /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -303,7 +310,7 @@ void StartDefaultTask(void *argument)
     /* Infinite loop — kick every 400 ms (well within the 500 ms WDT window) */
     for (;;)
     {
-        wdt_kick(g_wdt_id_default);
+        // wdt_kick(g_wdt_id_default);
         osDelay(400);
     }
     /* USER CODE END StartDefaultTask */
@@ -333,7 +340,6 @@ void UsbLoopTask(void *argument)
     /* Infinite loop */
     for (;;)
     {
-        wdt_kick(g_wdt_id_usb_loop);
         // put this thread to waiting state until there is new events
         tud_task();
 

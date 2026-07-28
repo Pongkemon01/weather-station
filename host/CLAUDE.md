@@ -161,4 +161,4 @@ The `dist/` folder is the portable distribution. Zip it for delivery.
 ## Open items still TBD
 
 - pid.codes allocation of `0x1209:0xDCB1` must merge before any release.
-- Protocol spec in `../docs/protocol.md` — to be written as features land.
+- Protocol spec described as comments in `../Src/cdctask.c` .

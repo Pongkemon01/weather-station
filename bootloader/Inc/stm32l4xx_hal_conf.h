@@ -4,7 +4,7 @@
  *
  * Only the peripherals used by the bootloader are enabled:
  *   SPI1  — polling FRAM access (boot_fram.c)
- *   IWDG  — independent watchdog refresh during Flash programming
+ *   IWDG  — conditional on BOOTLOADER_WDT_ENABLE
  *   Flash — page erase and double-word programming (boot_flash.c)
  *   GPIO  — FRAM chip-select
  *   RCC   — clock control
@@ -20,11 +20,17 @@
 extern "C" {
 #endif
 
+/* ── WDT toggle — define to enable, comment out to disable ────────── */
+#define BOOTLOADER_WDT_ENABLE
+
+
 /* ########################## Module Selection ############################## */
 #define HAL_MODULE_ENABLED
 #define HAL_GPIO_MODULE_ENABLED
 #define HAL_SPI_MODULE_ENABLED
+#ifdef BOOTLOADER_WDT_ENABLE
 #define HAL_IWDG_MODULE_ENABLED
+#endif
 #define HAL_FLASH_MODULE_ENABLED
 #define HAL_RCC_MODULE_ENABLED
 #define HAL_PWR_MODULE_ENABLED
@@ -52,7 +58,7 @@ extern "C" {
 /*#define HAL_SD_MODULE_ENABLED    */
 /*#define HAL_SMBUS_MODULE_ENABLED */
 /*#define HAL_TIM_MODULE_ENABLED   */
-/*#define HAL_UART_MODULE_ENABLED  */
+#define HAL_UART_MODULE_ENABLED
 /*#define HAL_USART_MODULE_ENABLED */
 /*#define HAL_WWDG_MODULE_ENABLED  */
 /*#define HAL_EXTI_MODULE_ENABLED  */
@@ -165,6 +171,10 @@ extern "C" {
 
 #ifdef HAL_SPI_MODULE_ENABLED
 #  include "stm32l4xx_hal_spi.h"
+#endif
+
+#ifdef HAL_UART_MODULE_ENABLED
+#  include "stm32l4xx_hal_uart.h"
 #endif
 
 #ifdef __cplusplus

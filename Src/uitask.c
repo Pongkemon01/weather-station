@@ -44,10 +44,12 @@
 
 #include "i2c.h"
 #include "ui.h"
+#include "watchdog_task.h"
 
 /* -------------------------------------------------------------------------- */
 /* Module-private state                                                         */
 /* -------------------------------------------------------------------------- */
+extern int8_t g_wdt_id_uitask; // Watchdog slot ID for uitask
 static uint8_t led_blinking_counter;
 static uint8_t previous_sw_status;
 UI_Interface_t ui_interface = {0}; /* extern in main.h */
@@ -57,11 +59,10 @@ void uitask(void *params)
 {
     (void)params;
 
-    // static int8_t wdt_id;
-    // wdt_id = wdt_register("uitask");
-
-    TickType_t xLastWakeTime = xTaskGetTickCount();
+    TickType_t xLastWakeTime;
     const TickType_t xFrequency = pdMS_TO_TICKS(20); /* 20 ms period */
+
+    bool old_cursor_on = false;
 
     previous_sw_status = 0u;
     led_blinking_counter = 0u;
@@ -74,13 +75,18 @@ void uitask(void *params)
     //     LED_DEBUG_RED_OFF();
 
     if (ui_interface.mutex != NULL && system_ready_status.ui_ready)
+    {
         ui_lcd_clear();
+        my_delay(3); // Wait for LCD to clear
+        ui_lcd_cursor_off();
+    }
 
     /* ── Infinite loop at 20 ms ────────────────────────────────────────────── */
+    xLastWakeTime = xTaskGetTickCount();
     while (1)
     {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
-        // wdt_kick(wdt_id);
+        wdt_kick(g_wdt_id_uitask);
 
         if (!system_ready_status.ui_ready)
         {
@@ -180,11 +186,18 @@ void uitask(void *params)
             uint8_t cursor_col = ui_interface.lcd_cursor_col;
             bool need_update = ui_interface.lcd_need_updated;
 
+            /* Clear the update flag */
+            ui_interface.lcd_need_updated = false;
+
             /* Backlight */
             bk_on ? ui_lcd_bk_on() : ui_lcd_bk_off();
 
             /* Cursor visibility */
-            cursor_on ? ui_lcd_cursor_on() : ui_lcd_cursor_off();
+            if (old_cursor_on != cursor_on)
+            {
+                old_cursor_on = cursor_on;
+                cursor_on ? ui_lcd_cursor_on() : ui_lcd_cursor_off();
+            }
 
             /* Content refresh */
             if (need_update)
@@ -193,8 +206,7 @@ void uitask(void *params)
                 ui_lcd_printline(1, ui_interface.disp[1]);
                 ui_interface.lcd_need_updated = false;
 
-                if (cursor_on)
-                    ui_lcd_set_cursor(cursor_row, cursor_col);
+                ui_lcd_set_cursor(cursor_col, cursor_row);
             }
 
             xSemaphoreGive(ui_interface.mutex);

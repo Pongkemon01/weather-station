@@ -217,6 +217,10 @@ void DeviceController::onRawFrame(quint8 opcode, const QByteArray& payload)
             case ROBIN_OP_SET_META: emit metaWriteAck(false, err); break;
             case ROBIN_OP_SET_RTC:  emit rtcWriteAck(false);       break;
             case ROBIN_OP_DB_FLUSH: emit dbFlushAck(false);        break;
+            case ROBIN_OP_REQ_RTC:  emit errorOccurred(tr("RTC read failed (error 0x%1).")
+                                                       .arg(err, 2, 16, QChar('0'))); break;
+            case ROBIN_OP_REQ_META: emit errorOccurred(tr("Config read failed (error 0x%1).")
+                                                       .arg(err, 2, 16, QChar('0'))); break;
             default: break;
             }
         }

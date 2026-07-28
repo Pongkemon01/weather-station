@@ -83,6 +83,8 @@ private:
     QTimer*           clockTimer_   = nullptr;
     QTimer*           statusPoll_   = nullptr;
     QTimer*           weatherPoll_  = nullptr;
+    QTimer*           rtcPoll_      = nullptr;
+    QTimer*           autoReconnect_= nullptr;
 
     bool connected_      = false;
     bool genDirty_       = false;

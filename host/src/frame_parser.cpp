@@ -15,13 +15,14 @@ void FrameParser::reset() {
 }
 
 // Returns expected payload bytes for each Device→Host opcode.
-// Opcodes 0x01–0x07 are host-originated commands; the device only ever sends
-// back 0x01 (weather), 0x02 (meta), 0x05 (status), 0xFE (ACK), or 0xFF (NAK).
+// The device sends back 0x01 (weather), 0x02 (meta), 0x05 (status),
+// 0x08 (RTC), 0xFE (ACK), or 0xFF (NAK).
 int FrameParser::payloadLen(quint8 opcode) {
     switch (opcode) {
     case ROBIN_OP_REQ_WEATHER:  return static_cast<int>(sizeof(Weather_Data_Packed_t));   // 18
     case ROBIN_OP_REQ_META:     return static_cast<int>(sizeof(Meta_Data_t));             // 216
     case ROBIN_OP_REQ_STATUS:   return static_cast<int>(sizeof(System_Ready_Status_t));   // 12
+    case ROBIN_OP_REQ_RTC:      return static_cast<int>(sizeof(RTC_DateTime_t));          // 6
     case ROBIN_OP_ACK:          return 1;   // echoed command byte
     case ROBIN_OP_NAK:          return 1;   // error code byte
     default:                    return -1;

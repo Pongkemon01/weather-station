@@ -87,6 +87,7 @@ extern "C" {
 
 bool            at_channel_init(UART_Ctx_t *uart_ctx, QueueHandle_t urc_queue);
 AtResult_t      at_channel_ping_modem(uint32_t total_timeout_ms, uint8_t at_alive_retries);
+AtReadyResult_t at_channel_check_network_ready(uint32_t total_timeout_ms);
 AtReadyResult_t at_channel_wait_ready(uint32_t total_timeout_ms, uint8_t at_alive_retries);
 void            at_channel_set_capture(char *buf, uint16_t size);
 AtResult_t      at_channel_send_cmd(const char *cmd, uint32_t timeout_ms);

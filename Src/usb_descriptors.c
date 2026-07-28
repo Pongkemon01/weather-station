@@ -34,11 +34,10 @@
  *   [MSB]         HID | MSC | CDC          [LSB]
  */
 #define PID_MAP(itf, n)  ((CFG_TUD_##itf) ? (1 << (n)) : 0)
-#define USB_PID           (0x4000 | PID_MAP(CDC, 0) | PID_MAP(MSC, 1) | PID_MAP(HID, 2) | \
-                           PID_MAP(MIDI, 3) | PID_MAP(VENDOR, 4) )
+#define USB_PID   0xDCB1
 
 #define USB_VID   0x1209
-#define USB_BCD   0xDCB1
+#define USB_BCD   0x0200
 
 //--------------------------------------------------------------------+
 // Device Descriptors

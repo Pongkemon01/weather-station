@@ -23,6 +23,7 @@
 #define UPLOAD_HEADER_SIZE      (2u * sizeof(uint16_t) + sizeof(uint8_t))  /* 5 B */
 #define UPLOAD_BLOB_SIZE(n)     ((uint16_t)(UPLOAD_HEADER_SIZE + (n) * sizeof(Weather_Data_Packed_t)))
 
+extern int8_t g_wdt_id_ssluploadtask;  // Watchdog slot ID for ssluploadtask
 static Meta_Data_t  meta_data;
 static char         s_url_buf[128];
 
@@ -86,21 +87,29 @@ void ssluploadtask(void *params)
     static int8_t    wdt_id;
     static FetchCtx_t fetch_ctx;
 
-    wdt_id = wdt_register("sslupload");
-
     while (1)
     {
         /* Wait for upload notification; kick watchdog every 500 ms while idle. */
         while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(WDT_PERIOD_MS)) == 0u)
-            wdt_kick(wdt_id);
-        wdt_kick(wdt_id);
+            wdt_kick(g_wdt_id_ssluploadtask);
+        wdt_kick(g_wdt_id_ssluploadtask);
 
+        /* Check if the A7670 modem is ready */
         if (!system_ready_status.a7670_ready)
+        {
+            printf("A7670 modem is not ready. Skipping SSL upload.\r\n");
             continue;
+        }
 
+        printf("SSL Uploader: Start uploding\r\n");
         uint16_t total_to_upload = DB_GetTotalToUpload();
         if (total_to_upload == 0u)
+        {
+            printf("No records to upload. Skipping SSL upload.\r\n");
             continue;
+        }
+
+        printf("SSL Upload: Uploading %u records\r\n", total_to_upload);
 
         (void)DB_GetMeta(&meta_data);
 
@@ -110,13 +119,20 @@ void ssluploadtask(void *params)
                          meta_data.server_name,
                          meta_data.server_path);
         if (n <= 0 || n >= (int)sizeof(s_url_buf))
+        {
+            printf("SSL Upload: Failed to build URL.\r\n");
             continue;
+        }
 
         /* Start one HTTPS session for all batches in this upload cycle. */
         HttpsUlResult_t ul_result = https_uploader_start(modem_get_urc_queue());
         if (ul_result != HTTPS_UL_OK)
+        {
+            printf("SSL Upload: Failed to start HTTPS session.\r\n");
             continue;
+        }
 
+        printf("SSL Upload: Uploading...\r\n");
         while (total_to_upload > 0u)
         {
             uint8_t records_this_batch =
@@ -133,6 +149,15 @@ void ssluploadtask(void *params)
                                             UPLOAD_BLOB_SIZE(records_this_batch));
             wdt_kick(wdt_id);
 
+            if (ul_result != HTTPS_UL_OK)
+            {
+                printf("SSL Upload: Upload failed\r\n");
+            }
+            else
+            {
+                printf("SSL Upload: %u records upload successful\r\n", fetch_ctx.records_fetched);
+            }
+
             if (ul_result == HTTPS_UL_OK && fetch_ctx.records_fetched > 0u)
             {
                 (void)DB_IncUploadTail((uint16_t)fetch_ctx.records_fetched);
@@ -145,6 +170,8 @@ void ssluploadtask(void *params)
         }
 
         (void)https_uploader_stop();
+
+        printf("SSL Upload: Done\r\n");
 
         /* Notify OtaManagerTask to perform OTA version check in this modem session. */
         if (OtaManagerTaskHandle != NULL)

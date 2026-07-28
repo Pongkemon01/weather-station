@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 import tempfile
-from datetime import date as _date_type, datetime, timedelta, timezone
+from datetime import date as _date_type, datetime, timezone
 from math import ceil
 from pathlib import Path
 from typing import Optional
@@ -451,10 +451,9 @@ async def sensor_data_page(
     user, redir = _get_user(request)
     if redir:
         return redir
-    default_date_from = (_date_type.today() - timedelta(days=7)).isoformat()
     initial_qs = _build_filter_qs(
         region_id, station_id,
-        date_from or default_date_from, date_to,
+        date_from, date_to,
         bus_min, bus_max,
     )
     return templates.TemplateResponse(
@@ -467,7 +466,6 @@ async def sensor_data_page(
             date_to=date_to,
             bus_min=bus_min,
             bus_max=bus_max,
-            default_date_from=default_date_from,
             initial_qs=initial_qs,
         ),
     )

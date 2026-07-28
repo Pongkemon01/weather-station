@@ -32,7 +32,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,7 +53,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+static IWDG_HandleTypeDef hiwdg_boot;  /* feed bootloader's IWDG during init */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -78,6 +78,19 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
 
+  /* Relocate vector table to the application offset (skip boot loader) */
+  SCB->VTOR = 0x8000ul; // Change 0x8000ul to match your offset
+
+  /* Re-initialise IWDG with same config as bootloader (4s timeout).
+   * This gives the app time to complete init before WatchdogTask takes over.
+   * Note: HAL_IWDG_Init() reconfigures PR/RLR but does NOT reload the
+   * down-counter — must call HAL_IWDG_Refresh() right after to reload it. */
+  // hiwdg_boot.Instance             = IWDG;
+  // hiwdg_boot.Init.Prescaler       = IWDG_PRESCALER_64;
+  // hiwdg_boot.Init.Reload          = 2000u;
+  // hiwdg_boot.Init.Window          = IWDG_WINDOW_DISABLE;
+  // HAL_IWDG_Init(&hiwdg_boot);
+  // HAL_IWDG_Refresh(&hiwdg_boot);
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -86,7 +99,8 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  __enable_irq();                 /* Enable interrupts so TIM17 timebase ticks */
+  //HAL_IWDG_Refresh(&hiwdg_boot);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -114,7 +128,8 @@ int main(void)
   MX_USB_OTG_FS_PCD_Init();
   MX_CRC_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_IWDG_Refresh(&hiwdg_boot);
+  LED_DEBUG_GREEN_ON();  /* green LED = app reached main() */
   /* USER CODE END 2 */
 
   /* Init scheduler */

@@ -50,7 +50,7 @@
  * Stack buffer for the raw AT+CCERTLIST response line.
  * Searched directly with strstr() — no name array needed.
  */
-#define CERTLIST_CAPTURE_SIZE   160u
+#define CERTLIST_CAPTURE_SIZE 160u
 
 /* ─────────────────────────── Private helpers ────────────────────────────── */
 
@@ -67,13 +67,13 @@
  */
 static bool cert_is_present(const char *capture, const char *name)
 {
-    if (!capture || !name || name[0] == '\0') 
+    if (!capture || !name || name[0] == '\0')
         return false;
 
     /* Build `"name"` for exact-token matching */
-    char quoted[CERT_NAME_MAX_LEN + 2u];  /* 34 B on stack */
+    char quoted[CERT_NAME_MAX_LEN + 2u]; /* 34 B on stack */
     int n = snprintf(quoted, sizeof(quoted), "\"%s\"", name);
-    if (n <= 0 || (size_t)n >= sizeof(quoted)) 
+    if (n <= 0 || (size_t)n >= sizeof(quoted))
         return false;
 
     return (strstr(capture, quoted) != NULL);
@@ -95,30 +95,33 @@ static AtResult_t certlist_raw(char *buf)
 
 /* ══════════════════════════ Public API ══════════════════════════════════════*/
 
-CertStatus_t ssl_cert_inject(const char    *name,
+CertStatus_t ssl_cert_inject(const char *name,
                              const uint8_t *pem_data,
-                             size_t         pem_len)
+                             size_t pem_len)
 {
-    if (!name || !pem_data || pem_len == 0) 
+    if (!name || !pem_data || pem_len == 0)
         return CERT_ERR_PARAM;
-    if (strlen(name) >= CERT_NAME_MAX_LEN)  
+    if (strlen(name) >= CERT_NAME_MAX_LEN)
         return CERT_ERR_PARAM;
 
-    if (ssl_cert_exists(name)) 
+    if (ssl_cert_exists(name))
         return CERT_ERR_EXISTS;
 
     char cmd[64];
-    snprintf(cmd, sizeof(cmd), "AT+CCERTDOWN=\"%s\",%zu", name, pem_len);
+    snprintf(cmd, sizeof(cmd), "AT+CCERTDOWN=\"%s\",%u", name, pem_len);
+    printf("Injecting certificate '%s' (%u bytes)...\r\n", name, pem_len);
 
     AtResult_t r = at_channel_send_binary(cmd, pem_data, pem_len,
                                           CERT_DOWNLOAD_TIMEOUT_MS);
-    if (r != AT_OK) 
+    printf("Certificate injection result: %d\r\n", r);
+
+    if (r != AT_OK)
     {
         return ((r == AT_TIMEOUT) ? CERT_ERR_TIMEOUT : CERT_ERR_MODEM);
     }
 
     /* Confirm the modem actually stored it */
-    if (!ssl_cert_exists(name)) 
+    if (!ssl_cert_exists(name))
         return CERT_ERR_MODEM;
 
     return CERT_OK;
@@ -128,7 +131,7 @@ CertStatus_t ssl_cert_inject(const char    *name,
 
 bool ssl_cert_exists(const char *name)
 {
-    if (!name || name[0] == '\0') 
+    if (!name || name[0] == '\0')
         return false;
 
     char cap[CERTLIST_CAPTURE_SIZE];
@@ -138,7 +141,7 @@ bool ssl_cert_exists(const char *name)
      * AT+CCERTLIST returns ERROR on some firmware versions when the
      * filesystem is empty.  Both ERROR and empty capture mean "not present".
      */
-    if (r != AT_OK) 
+    if (r != AT_OK)
         return false;
 
     return cert_is_present(cap, name);
@@ -148,19 +151,19 @@ bool ssl_cert_exists(const char *name)
 
 CertStatus_t ssl_cert_delete(const char *name)
 {
-    if (!name || name[0] == '\0' || strlen(name) >= CERT_NAME_MAX_LEN) 
+    if (!name || name[0] == '\0' || strlen(name) >= CERT_NAME_MAX_LEN)
         return CERT_ERR_PARAM;
 
-    if (!ssl_cert_exists(name)) 
+    if (!ssl_cert_exists(name))
         return CERT_ERR_NOT_FOUND;
 
     char cmd[64];
     snprintf(cmd, sizeof(cmd), "AT+CCERTDELE=\"%s\"", name);
 
     AtResult_t r = at_channel_send_cmd(cmd, CERT_MGMT_TIMEOUT_MS);
-    if (r == AT_OK)      
+    if (r == AT_OK)
         return CERT_OK;
-    if (r == AT_TIMEOUT) 
+    if (r == AT_TIMEOUT)
         return CERT_ERR_TIMEOUT;
     return CERT_ERR_MODEM;
 }

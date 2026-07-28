@@ -83,19 +83,33 @@ static HttpsUlResult_t wait_for_httpaction(uint32_t        timeout_ms,
 
 HttpsUlResult_t https_uploader_start(QueueHandle_t urc_queue)
 {
+    char err[80];
+
     if (urc_queue == NULL)
         return HTTPS_UL_ERR_PARAM;
 
     s_urc_queue = urc_queue;
 
-    /* Start HTTP service — activates PDP context if not already up. */
-    if (at_channel_send_cmd("AT+HTTPINIT", HTTPS_UL_INIT_MS) != AT_OK)
-        return HTTPS_UL_ERR_INIT;
+    at_channel_set_capture(err, sizeof(err));
 
+     /* Start HTTP service — activates PDP context if not already up. */
+    if (at_channel_send_cmd("AT+HTTPINIT", HTTPS_UL_INIT_MS) != AT_OK)
+    {
+        printf("HTTPS Start: HTTPINIT failed with error = %s\r\n", err);
+        at_channel_set_capture(NULL, 0u);
+        return HTTPS_UL_ERR_INIT;
+    }
+
+    at_channel_set_capture(err, sizeof(err));
     /* Bind SSL context 0 (configured once in Modem_Module_Init). */
     if (at_channel_send_cmd("AT+HTTPPARA=\"SSLCFG\",0", HTTPS_UL_PARAM_MS) != AT_OK)
+    {
+        printf("HTTPS Start: SSLCFG failed with error = %s\r\n", err);
+        at_channel_set_capture(NULL, 0u);
         return HTTPS_UL_ERR_INIT;
+    }
 
+    at_channel_set_capture(NULL, 0u);
     return HTTPS_UL_OK;
 }
 
@@ -115,20 +129,32 @@ HttpsUlResult_t https_uploader_post(const char      *full_url,
                      "AT+HTTPPARA=\"URL\",\"%.*s\"",
                      (int)(HTTPS_UL_URL_MAX_LEN - 1u), full_url);
     if (n <= 0 || n >= (int)sizeof(s_cmd_buf))
+    {
+        printf("HTTP Post: URL too long\r\n");
         return HTTPS_UL_ERR_PARAM;
+    }
 
     if (at_channel_send_cmd(s_cmd_buf, HTTPS_UL_PARAM_MS) != AT_OK)
+    {
+        printf("HTTP Post: Failed to set URL (AT+HTTPPARA)\r\n");
         return HTTPS_UL_ERR_URL;
+    }
 
     /* 2. Set content-type for binary blob. */
     if (at_channel_send_cmd("AT+HTTPPARA=\"CONTENT\",\"application/octet-stream\"",
                              HTTPS_UL_PARAM_MS) != AT_OK)
+    {
+        printf("HTTP Post: Failed to set content-type (AT+HTTPPARA)\r\n");
         return HTTPS_UL_ERR_URL;
+    }
 
     /* 3. Assemble the POST body via fetch callback. */
     uint16_t filled = fetch_cb(ctx, s_fetch_buf, HTTPS_UL_FETCH_WINDOW);
     if (filled != len)
+    {
+        printf("HTTP Post: Requesting for %u bytes, got %u bytes\r\n", len, filled);
         return HTTPS_UL_ERR_PARAM;
+    }
 
     /* 4. Prime the modem POST buffer.
      *    AT+HTTPDATA=<size>,<timeout_s> → modem replies "DOWNLOAD" (AT_PROMPT)
@@ -136,24 +162,40 @@ HttpsUlResult_t https_uploader_post(const char      *full_url,
      *    The 30-second timeout is the modem-side window to receive the body. */
     n = snprintf(s_cmd_buf, sizeof(s_cmd_buf), "AT+HTTPDATA=%u,30", (unsigned)len);
     if (n <= 0 || n >= (int)sizeof(s_cmd_buf))
+    {
+        printf("HTTP Post: Failed to start sending data (AT+HTTPDATA)\r\n");
         return HTTPS_UL_ERR_POST;
+    }
 
     if (at_channel_send_binary(s_cmd_buf, s_fetch_buf, len, HTTPS_UL_DATA_MS) != AT_OK)
+    {
+        printf("HTTP Post: Failed to send data chunk (AT+HTTPDATA)\r\n");
         return HTTPS_UL_ERR_POST;
+    }
 
     /* 5. Issue the POST.  Modem returns OK immediately; +HTTPACTION URC follows. */
     if (at_channel_send_cmd("AT+HTTPACTION=1", HTTPS_UL_PARAM_MS) != AT_OK)
+    {
+        printf("HTTP Post: Failed to issue POST (AT+HTTPACTION)\r\n");
         return HTTPS_UL_ERR_POST;
+    }
 
     /* 6. Wait for +HTTPACTION: 1,<status>,<datalen> URC. */
     HttpUrcEvent_t ev;
     if (wait_for_httpaction(HTTPS_UL_ACTION_MS, &ev) != HTTPS_UL_OK)
+    {
+        printf("HTTP Post: Failed to receive +HTTPACTION URC\r\n");
         return HTTPS_UL_ERR_POST;
+    }
 
     /* 7. Verify HTTP 2xx status.  Discard response body (datalen not used). */
     if (ev.statuscode < 200u || ev.statuscode >= 300u)
+    {
+        printf("HTTP Post: Server returned %u\r\n", ev.statuscode);
         return HTTPS_UL_ERR_HTTP;
+    }
 
+    printf("HTTP Post: OK\r\n");
     return HTTPS_UL_OK;
 }
 

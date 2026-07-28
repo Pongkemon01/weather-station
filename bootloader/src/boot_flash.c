@@ -6,8 +6,7 @@
  * them into the application Flash partition (Bank 1, pages 16–255).
  *
  * Write sequence per page:
- *   1. Refresh IWDG.
- *   2. boot_fram_read() → static page_buf (2 KB, 8-byte aligned).
+ *   1. boot_fram_read() → static page_buf (2 KB, 8-byte aligned).
  *   3. HAL_FLASH_Unlock().
  *   4. HAL_FLASHEx_Erase() one page.
  *   5. 256 × HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, ...).
@@ -90,7 +89,11 @@ static bool program_page(uint32_t dst_addr)
 /**
  * @brief  Program the application Flash partition from FRAM staging.
  */
+#ifdef BOOTLOADER_WDT_ENABLE
 bool boot_flash_program(uint32_t image_size, IWDG_HandleTypeDef *hiwdg_ptr)
+#else
+bool boot_flash_program(uint32_t image_size)
+#endif
 {
     uint32_t max_size;
     uint32_t pages_needed;
@@ -100,7 +103,11 @@ bool boot_flash_program(uint32_t image_size, IWDG_HandleTypeDef *hiwdg_ptr)
     uint32_t fram_src;
     uint32_t flash_dst;
 
+#ifdef BOOTLOADER_WDT_ENABLE
     if (hiwdg_ptr == NULL || image_size == 0u)
+#else
+    if (image_size == 0u)
+#endif
         return false;
 
     max_size = (uint32_t)APP_TOTAL_PAGES * FLASH_PAGE_SIZE;
@@ -112,9 +119,10 @@ bool boot_flash_program(uint32_t image_size, IWDG_HandleTypeDef *hiwdg_ptr)
 
     for (page = APP_FIRST_PAGE; page < APP_FIRST_PAGE + pages_needed; page++)
     {
+#ifdef BOOTLOADER_WDT_ENABLE
         /* Keep the watchdog alive throughout the erase/write loop. */
         HAL_IWDG_Refresh(hiwdg_ptr);
-
+#endif
         fram_src  = FRAM_STAGING_IMAGE
                     + (page - APP_FIRST_PAGE) * FLASH_PAGE_SIZE;
         flash_dst = FLASH_APP_ORIGIN

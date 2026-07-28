@@ -205,6 +205,10 @@ TimeSourceResult_t datetime_sync_with_best_source(void)
                    datetime_from_string(&modem_dt, buf) &&
                    datetime_is_plausible(&modem_dt);
     }
+    else
+    {
+        printf("Modem is not initialized, cannot sync time from modem.\r\n");
+    }
 
     /* ── Arbitration ─────────────────────────────────────────────────────── */
 

@@ -1,4 +1,4 @@
-/* Automatically generated from /home/akp/iot_pki/intermediate.der — do not edit manually */
+/* Automatically generated from /home/akp/html/pki/devices/iot-fleet/intermediate.der -- do not edit manually */
 #include <stddef.h>
 #include <stdint.h>
 

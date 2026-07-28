@@ -84,6 +84,10 @@ static bool Modem_Module_Init(void)
     if (at_channel_ping_modem(2000u, 5u) != AT_OK)
         return false;
 
+    /* 1.1 Echo off */
+    if (at_channel_send_cmd("ATE0", 1000u) != AT_OK)
+        return false;
+
     /* 2. Time sync
      *
      * Step A: Enable automatic network time-zone update (NITZ).
@@ -103,21 +107,26 @@ static bool Modem_Module_Init(void)
      *         at_channel_send_cntp() suppresses the immediate OK and returns
      *         only when the URC confirms the clock is set (err == 0).
      *         Timeout 12 000 ms: modem manual specifies up to 10 s. */
+    printf("Executing NTP synchronization...\r\n");
     if (at_channel_send_cntp(12000u) != AT_OK)
         return false;
 
     /* 3. Upload certificates
      *    CERT_ERR_EXISTS means already present from a previous boot — skip. */
+    ssl_cert_delete("server.der");
+    ssl_cert_delete("client.der");
+    ssl_cert_delete("client_key.der");
+
     cert_status = ssl_cert_inject("server.der", server_der, server_der_len);
-    if (cert_status != CERT_OK && cert_status != CERT_ERR_EXISTS)
+    if (cert_status != CERT_OK)
         return false;
 
     cert_status = ssl_cert_inject("client.der", client_der, client_der_len);
-    if (cert_status != CERT_OK && cert_status != CERT_ERR_EXISTS)
+    if (cert_status != CERT_OK)
         return false;
 
     cert_status = ssl_cert_inject("client_key.der", client_key_der, client_key_der_len);
-    if (cert_status != CERT_OK && cert_status != CERT_ERR_EXISTS)
+    if (cert_status != CERT_OK)
         return false;
 
     /* 4. Volatile SSL hardening — SSL context 0, used by AT+HTTPPARA="SSLCFG",0.
@@ -127,18 +136,44 @@ static bool Modem_Module_Init(void)
      *    authmode 2    = mutual authentication (client + server certificates).
      *    sni 1         = send SNI extension; required for virtual hosting. */
     if (at_channel_send_cmd("AT+CSSLCFG=\"sslversion\",0,3", 500u) != AT_OK)
+    {
+        printf("Failed to set sslversion\r\n");
         return false;
+    }
     if (at_channel_send_cmd("AT+CSSLCFG=\"authmode\",0,2", 500u) != AT_OK)
+    {
+        printf("Failed to set authmode\r\n");
         return false;
+    }
     if (at_channel_send_cmd("AT+CSSLCFG=\"cacert\",0,\"server.der\"", 500u) != AT_OK)
+    {
+        printf("Failed to set cacert\r\n");
         return false;
+    }
     if (at_channel_send_cmd("AT+CSSLCFG=\"clientcert\",0,\"client.der\"", 500u) != AT_OK)
+    {
+        printf("Failed to set clientcert\r\n");
         return false;
+    }
     if (at_channel_send_cmd("AT+CSSLCFG=\"clientkey\",0,\"client_key.der\"", 500u) != AT_OK)
+    {
+        printf("Failed to set clientkey\r\n");
         return false;
-    if (at_channel_send_cmd("AT+CSSLCFG=\"sni\",0,1", 500u) != AT_OK)
+    }
+    if (at_channel_send_cmd("AT+CSSLCFG=\"enableSNI\",0,1", 500u) != AT_OK)
+    {
+        printf("Failed to set sni\r\n");
         return false;
+    }
 
+    /* 5. Register to PDP context (packet domain)*/
+    if (at_channel_send_cmd("AT+CGDCONT", 500u) != AT_OK)
+    {
+        printf("Failed to register to PDP context\r\n");
+        return false;
+    }
+
+    printf("Modem module initialization complete.\r\n");
     return true;
 }
 
@@ -146,41 +181,52 @@ static bool Modem_Module_Init(void)
 
 bool modem_init(UART_HandleTypeDef *huart)
 {
-    if (huart == NULL)
+    if (huart == NULL && modem_ctx == NULL)
         return false;
 
-    if ((urc_queue = xQueueCreate(10u, sizeof(HttpUrcEvent_t))) == NULL)
-        return false;
+    if (urc_queue == NULL)
+    {
+        urc_queue = xQueueCreate(10u, sizeof(HttpUrcEvent_t));
+        if (urc_queue == NULL)
+            return false;
+    }
 
-    modem_ctx = UART_Sys_Register(huart);
+    // If the modem_ctx is already registered but with a different huart, unregister it first.
+    if (modem_ctx != NULL && huart != NULL && modem_ctx->huart->Instance != huart->Instance)
+    {
+        UART_Sys_UnRegister(modem_ctx);
+        modem_ctx = NULL;
+    }
+
     if (modem_ctx == NULL)
     {
-        vQueueDelete(urc_queue);
-        urc_queue = NULL;
-        return false;
+        modem_ctx = UART_Sys_Register(huart);
+        if (modem_ctx == NULL)
+        {
+            printf("Failed to register modem UART context\r\n");
+            return false;
+        }
     }
 
     if (!at_channel_init(modem_ctx, urc_queue))
     {
-        UART_Sys_UnRegister(modem_ctx);
-        modem_ctx = NULL;
-        vQueueDelete(urc_queue);
-        urc_queue = NULL;
+        printf("Failed to initialize modem AT channel\r\n");
         return false;
     }
 
     if (!Modem_Module_Init())
     {
-        modem_deinit();
+        printf("Failed to initialize modem module\r\n");
         return false;
     }
 
     if (at_channel_wait_ready(10000u, 5u) != AT_READY_OK)
     {
-        modem_deinit();
+        printf("Failed to wait for modem to be ready\r\n");
         return false;
     }
 
+    printf("Modem is ready\r\n");
     return true;
 }
 
@@ -191,11 +237,13 @@ void modem_deinit(void)
     at_channel_deinit();
     if (modem_ctx)
     {
+        printf("Unregistering modem UART context...\r\n");
         UART_Sys_UnRegister(modem_ctx);
         modem_ctx = NULL;
     }
     if (urc_queue)
     {
+        printf("Deleting modem URC queue...\r\n");
         vQueueDelete(urc_queue);
         urc_queue = NULL;
     }
@@ -210,11 +258,30 @@ bool modem_is_init(void)
 
 /* -------------------------------------------------------------------------- */
 
+bool modem_is_ready(void)
+{
+    if (!modem_is_init())
+        return false;
+
+    AtReadyResult_t ready = at_channel_wait_ready(10000u, 5u);
+    return (ready == AT_READY_OK);
+}
+
+/* -------------------------------------------------------------------------- */
+
 QueueHandle_t modem_get_urc_queue(void)
 {
     return urc_queue;
 }
 
+/* -------------------------------------------------------------------------- */
+
+bool modem_sync_ntp(void)
+{
+    if (at_channel_send_cntp(12000u) != AT_OK)
+        return false;
+    return true;
+}
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -242,7 +309,7 @@ bool modem_get_datetime(char *buf)
      * Prefix is 7 chars, time is 20 chars, plus '\n' = 28. Use >= 27 for safety. */
     if (r == AT_OK && strlen(cap) >= 27u)
     {
-        memcpy(buf, &cap[7], 20u);
+        memcpy(buf, &cap[8], 20u);
         buf[20] = '\0';
         return true;
     }

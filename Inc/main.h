@@ -147,9 +147,9 @@ void my_delay(uint32_t ms); // A custom delay function that can be used in both 
 #define FRAM_MSIO_GPIO_Port GPIOA
 #define FRAM_MOSI_Pin GPIO_PIN_7
 #define FRAM_MOSI_GPIO_Port GPIOA
-#define USR_SW1_Pin GPIO_PIN_4
+#define USR_SW1_Pin GPIO_PIN_5
 #define USR_SW1_GPIO_Port GPIOC
-#define USR_SW2_Pin GPIO_PIN_5
+#define USR_SW2_Pin GPIO_PIN_4
 #define USR_SW2_GPIO_Port GPIOC
 #define LTE_TX_Pin GPIO_PIN_10
 #define LTE_TX_GPIO_Port GPIOB
@@ -190,12 +190,12 @@ void my_delay(uint32_t ms); // A custom delay function that can be used in both 
 #define LED_DEBUG_BLUE_TOGGLE() HAL_GPIO_TogglePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin)
 
 /* User switches macros */
-#define SW1_DEBUG_STATUS() HAL_GPIO_ReadPin(USR_SW1_GPIO_Port, USR_SW1_Pin)
-#define SW2_DEBUG_STATUS() HAL_GPIO_ReadPin(USR_SW2_GPIO_Port, USR_SW2_Pin)
+#define SW1_DEBUG_STATUS() (HAL_GPIO_ReadPin(USR_SW1_GPIO_Port, USR_SW1_Pin) == GPIO_PIN_RESET)
+#define SW2_DEBUG_STATUS() (HAL_GPIO_ReadPin(USR_SW2_GPIO_Port, USR_SW2_Pin) == GPIO_PIN_RESET)
 
 /* SD Card status */
 #define SD_INSERTED_STATUS() (HAL_GPIO_ReadPin(SD_CD_GPIO_Port, SD_CD_Pin) == GPIO_PIN_RESET)
-#define SD_WRITE_PROTECTED_STATUS() (HAL_GPIO_ReadPin(SD_WP_GPIO_Port, SD_WP_Pin) == GPIO_PIN_RESET)
+#define SD_WRITE_PROTECTED_STATUS() (HAL_GPIO_ReadPin(SD_WP_GPIO_Port, SD_WP_Pin) == GPIO_PIN_SET)
 
 /* USER CODE END Private defines */
 

@@ -45,14 +45,14 @@ data = pathlib.Path(input_file).read_bytes()
 items = [f'0x{b:02x}' for b in data]
 lines = ['    ' + ', '.join(items[i:i+12]) for i in range(0, len(items), 12)]
 
-content  = f'/* Automatically generated from {input_file} — do not edit manually */\n'
+content  = f'/* Automatically generated from {input_file} -- do not edit manually */\n'
 content += '#include <stddef.h>\n'
 content += '#include <stdint.h>\n\n'
 content += f'const uint8_t {var_name}[] = {{\n'
 content += ',\n'.join(lines) + '\n};\n\n'
 content += f'const size_t {var_name}_len = {len(data)};\n'
 
-pathlib.Path(output_file).write_text(content)
+pathlib.Path(output_file).write_text(content, encoding='utf-8')
 print(f'  {output_file}: {len(data)} bytes -> {var_name}[{len(data)}]')
 PYEOF
 

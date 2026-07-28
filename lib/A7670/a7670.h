@@ -14,7 +14,9 @@ extern "C"
 bool modem_init(UART_HandleTypeDef *huart);
 void modem_deinit(void);
 bool modem_is_init(void);
+bool modem_is_ready(void);
 QueueHandle_t modem_get_urc_queue(void);
+bool modem_sync_ntp(void);
 bool modem_get_datetime(char *buf);
 bool modem_set_datetime(const char *buf);
 

@@ -8,8 +8,6 @@
  * Design constraints:
  *   - HAL_FLASH_Program granularity: 64-bit double-word.
  *   - Page size: 2 KB (FLASH_PAGE_SIZE = 2048).
- *   - IWDG is refreshed before every page to survive the 240-page loop
- *     (≈ 6 s at 25 ms/page erase).
  *   - page_buf is declared static (8-byte aligned); never placed on stack.
  *   - boot_fram_init() must be called before boot_flash_program().
  */
@@ -48,17 +46,17 @@ extern "C" {
  * page-by-page into Bank 1 pages 16–255, and verifies each page with
  * memcmp after programming.
  *
- * HAL_IWDG_Refresh() is called before each page so the watchdog does not
- * fire during the 240-page loop (~6 s).
- *
  * @param  image_size  Number of valid bytes in the staged image.
  *                     Must be > 0 and ≤ APP_TOTAL_PAGES × FLASH_PAGE_SIZE.
- * @param  hiwdg_ptr   IWDG handle used to refresh the watchdog each page.
- *                     Must not be NULL.
+ * @param  hiwdg_ptr   IWDG handle (only when BOOTLOADER_WDT_ENABLE).
  * @return true on complete success (all pages programmed and verified).
  *         false on any erase, write, or verify failure.
  */
+#ifdef BOOTLOADER_WDT_ENABLE
 bool boot_flash_program(uint32_t image_size, IWDG_HandleTypeDef *hiwdg_ptr);
+#else
+bool boot_flash_program(uint32_t image_size);
+#endif
 
 #ifdef __cplusplus
 }

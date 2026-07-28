@@ -154,9 +154,9 @@ bool ui_init(I2C_HandleTypeDef *hi2c)
         return false;
     if(!(ui_lcd_write_command(LCD_INST_FUNCTION_SET | LCD_FUNCTION_4BIT_MODE | LCD_FUNCTION_2LINE | LCD_FUNCTION_5x8DOT)))
         return false;
-    if(!(ui_lcd_write_command(LCD_INST_CURSOR_CTRL | LCD_CURSOR_SHIFT_RIGHT)))
+    if(!(ui_lcd_write_command(LCD_INST_CURSOR_CTRL)))
         return false;
-    if(!(ui_lcd_write_command(LCD_INST_DISPLAY_CTRL | LCD_DISPLAY_DISPLAY_ON)))
+    if(!(ui_lcd_write_command(LCD_INST_DISPLAY_CTRL | LCD_DISPLAY_DISPLAY_ON | LCD_DISPLAY_CURSOR_ON | LCD_DISPLAY_CURSOR_BLINK_ON)))
         return false;
     if(!(ui_lcd_write_command(LCD_INST_ENTRY_MODE | LCD_ENTRY_CURSOR_INCREMENT)))
         return false;
@@ -225,11 +225,13 @@ bool ui_lcd_bk_off(void)
 
 bool ui_lcd_cursor_on(void)
 {
+    // printf("Turning cursor on\r\n");
     return(ui_lcd_write_command(LCD_INST_DISPLAY_CTRL | LCD_DISPLAY_CURSOR_ON | LCD_DISPLAY_CURSOR_BLINK_ON | LCD_DISPLAY_DISPLAY_ON));
 }
 
 bool ui_lcd_cursor_off(void)
 {
+    // printf("Turning cursor off\r\n");
     return(ui_lcd_write_command(LCD_INST_DISPLAY_CTRL | LCD_DISPLAY_CURSOR_OFF | LCD_DISPLAY_CURSOR_BLINK_OFF | LCD_DISPLAY_DISPLAY_ON));
 }
 

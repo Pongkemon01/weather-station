@@ -218,6 +218,7 @@
                 "PLATFORMIO=60119",
                 "STM32L4",
                 "STM32L476xx",
+                "VECT_TAB_OFFSET=0x8000",
                 "CFG_TUSB_MCU=OPT_MCU_STM32L4",
                 "FW_VERSION=1",
                 "_RETARGET_LOCKING",

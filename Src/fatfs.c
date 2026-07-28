@@ -15,6 +15,7 @@
   *
   ******************************************************************************
   */
+#include "rtc.h"
 /* USER CODE END Header */
 #include "fatfs.h"
 
@@ -27,7 +28,14 @@ FIL SDFile;       /* File object for SD */
 /* Volume - Partition resolution table should be user defined in case of Multiple partition */
 /* When multi-partition feature is enabled (1), each logical drive number is bound to arbitrary physical drive and partition
 listed in the VolToPart[] */
-PARTITION *VolToPart;
+#if _MULTI_PARTITION
+PARTITION *VolToPart  = {
+  {0, 1},
+  {0, 2},
+  {0, 3},
+  {0, 4}
+};
+#endif
 /* USER CODE END VolToPart */
 
 /* USER CODE BEGIN Variables */
@@ -52,7 +60,23 @@ void MX_FATFS_Init(void)
 DWORD get_fattime(void)
 {
   /* USER CODE BEGIN get_fattime */
-  return 0;
+    RTC_TimeTypeDef sTime;
+    RTC_DateTypeDef sDate;
+
+    // Call HAL_RTC_GetDate() after HAL_RTC_GetTime() to unlock shadow registers
+    HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+    HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+
+    // Pack the date and time as required by FatFs
+    DWORD fat_date = (((DWORD)(sDate.Year + 2000 - 1980)) << 25) |
+                     (((DWORD)sDate.Month) << 21) |
+                     (((DWORD)sDate.Date) << 16);
+
+    DWORD fat_time = (((DWORD)sTime.Hours) << 11) |
+                     (((DWORD)sTime.Minutes) << 5) |
+                     (((DWORD)sTime.Seconds) >> 1);
+
+    return (fat_date | fat_time);
   /* USER CODE END get_fattime */
 }
 

@@ -1,17 +1,14 @@
 /*-----------------------------------------------------------------------*/
-/* Low level disk I/O module skeleton for FatFs     (C)ChaN, 2017        */
-/*                                                                       */
-/*   Portions COPYRIGHT 2017 STMicroelectronics                          */
-/*   Portions Copyright (C) 2017, ChaN, all right reserved               */
+/* Low level disk I/O module SKELETON for FatFs     (C)ChaN, 2025        */
 /*-----------------------------------------------------------------------*/
 /* If a working storage control module is available, it should be        */
 /* attached to the FatFs via a glue function rather than modifying it.   */
-/* This is an example of glue functions to attach various existing      */
+/* This is an example of glue functions to attach various exsisting      */
 /* storage control modules to the FatFs module with a defined API.       */
 /*-----------------------------------------------------------------------*/
 
-/* Includes ------------------------------------------------------------------*/
-#include "diskio.h"
+#include "ff.h"			/* Basic definitions of FatFs */
+#include "diskio.h"		/* Declarations FatFs MAI */
 #include "ff_gen_drv.h"
 
 #if defined ( __GNUC__ )
@@ -73,7 +70,7 @@ DSTATUS disk_initialize (
 DRESULT disk_read (
 	BYTE pdrv,		/* Physical drive nmuber to identify the drive */
 	BYTE *buff,		/* Data buffer to store read data */
-	DWORD sector,	        /* Sector address in LBA */
+	LBA_t sector,	        /* Sector address in LBA */
 	UINT count		/* Number of sectors to read */
 )
 {
@@ -91,11 +88,11 @@ DRESULT disk_read (
   * @param  count: Number of sectors to write (1..128)
   * @retval DRESULT: Operation result
   */
-#if _USE_WRITE == 1
+#if !FF_FS_READONLY
 DRESULT disk_write (
 	BYTE pdrv,		/* Physical drive nmuber to identify the drive */
 	const BYTE *buff,	/* Data to be written */
-	DWORD sector,		/* Sector address in LBA */
+	LBA_t sector,		/* Sector address in LBA */
 	UINT count        	/* Number of sectors to write */
 )
 {
@@ -104,7 +101,7 @@ DRESULT disk_write (
   res = disk.drv[pdrv]->disk_write(disk.lun[pdrv], buff, sector, count);
   return res;
 }
-#endif /* _USE_WRITE == 1 */
+#endif /* !FF_FS_READONLY */
 
 /**
   * @brief  I/O control operation
@@ -113,7 +110,7 @@ DRESULT disk_write (
   * @param  *buff: Buffer to send/receive control data
   * @retval DRESULT: Operation result
   */
-#if _USE_IOCTL == 1
+
 DRESULT disk_ioctl (
 	BYTE pdrv,		/* Physical drive nmuber (0..) */
 	BYTE cmd,		/* Control code */
@@ -125,7 +122,7 @@ DRESULT disk_ioctl (
   res = disk.drv[pdrv]->disk_ioctl(disk.lun[pdrv], cmd, buff);
   return res;
 }
-#endif /* _USE_IOCTL == 1 */
+
 
 /**
   * @brief  Gets Time from RTC
@@ -136,6 +133,3 @@ __weak DWORD get_fattime (void)
 {
   return 0;
 }
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
-

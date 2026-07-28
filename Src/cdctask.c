@@ -37,44 +37,44 @@
 /* -------------------------------------------------------------------------- */
 /* Protocol Constants                                                         */
 /* -------------------------------------------------------------------------- */
-#define MAGIC_H2D_H    0xDCu
-#define MAGIC_H2D_L    0xB1u
-#define MAGIC_D2H_H    0x55u
-#define MAGIC_D2H_L    0xAAu
+#define MAGIC_H2D_H 0xDCu
+#define MAGIC_H2D_L 0xB1u
+#define MAGIC_D2H_H 0x55u
+#define MAGIC_D2H_L 0xAAu
 
 /* BUG FIX #4: Pre-compute footer bytes as named constants to avoid
  * relying on integer-promotion behaviour of ~ at every use site.
  * ~0xDC as int = 0xFFFFFF23; cast to uint8_t = 0x23.
  * Having these as explicit uint8_t macros makes every comparison
  * unambiguously unsigned and self-documenting. */
-#define MAGIC_H2D_FOOT_H  ((uint8_t)(~MAGIC_H2D_H))   /* 0x23 */
-#define MAGIC_H2D_FOOT_L  ((uint8_t)(~MAGIC_H2D_L))   /* 0x4E */
+#define MAGIC_H2D_FOOT_H ((uint8_t)(~MAGIC_H2D_H)) /* 0x23 */
+#define MAGIC_H2D_FOOT_L ((uint8_t)(~MAGIC_H2D_L)) /* 0x4E */
 
-#define CMD_REQ_WEATHER  0x01u  /* Weather data only  */
-#define CMD_REQ_META     0x02u  /* Config only        */
-#define CMD_SET_META     0x03u  /* Update Config      */
-#define CMD_SET_RTC      0x04u  /* Set RTC time       */
-#define CMD_REQ_STATUS   0x05u  /* Get System Status  */
-#define CMD_DB_FLUSH     0x06u  /* Flush database     */
-#define CMD_SYS_RESET    0x07u  /* Reboot             */
-#define CMD_REQ_RTC      0x08u  /* Request RTC time   */
-#define CMD_ACK          0xFEu  /* Generic success    */
-#define CMD_NAK          0xFFu  /* Error feedback     */
+#define CMD_REQ_WEATHER 0x01u /* Weather data only  */
+#define CMD_REQ_META 0x02u    /* Config only        */
+#define CMD_SET_META 0x03u    /* Update Config      */
+#define CMD_SET_RTC 0x04u     /* Set RTC time       */
+#define CMD_REQ_STATUS 0x05u  /* Get System Status  */
+#define CMD_DB_FLUSH 0x06u    /* Flush database     */
+#define CMD_SYS_RESET 0x07u   /* Reboot             */
+#define CMD_REQ_RTC 0x08u     /* Request RTC time   */
+#define CMD_ACK 0xFEu         /* Generic success    */
+#define CMD_NAK 0xFFu         /* Error feedback     */
 
 /* BUG FIX #1: CMD_MAX is the highest *valid* command value.
  * Any byte > CMD_MAX is unknown.  CMD_NAK (0xFF) must never be
  * treated as a valid host command — the old guard
  *   (current_cmd > CMD_SYS_RESET && current_cmd != CMD_NAK)
  * allowed 0xFF through because of the != exclusion. */
-#define CMD_MAX          CMD_REQ_RTC
+#define CMD_MAX CMD_REQ_RTC
 
-#define ERR_UNKNOWN_CMD    0x01u
+#define ERR_UNKNOWN_CMD 0x01u
 #define ERR_INVALID_FOOTER 0x02u
-#define ERR_WRITE_FAILED   0x03u
-#define ERR_INVALID_DATA   0x04u
+#define ERR_WRITE_FAILED 0x03u
+#define ERR_INVALID_DATA 0x04u
 
 /* BUG FIX #8: Named constant for the pre-reset TX-drain delay. */
-#define RESET_DRAIN_MS     50u
+#define RESET_DRAIN_MS 50u
 
 /* -------------------------------------------------------------------------- */
 /* Memory Optimization: Static Shared Buffer                                  */
@@ -95,17 +95,17 @@ typedef enum
  * it at build time before it becomes a buffer-overflow at runtime.
  * (BUG FIX #5 — static defence against future overflow)
  */
-#define PG_BUF_SIZE  220u
-_Static_assert(sizeof(Meta_Data_t)    <= PG_BUF_SIZE, "Meta_Data_t exceeds pg_buf");
+#define PG_BUF_SIZE 220u
+_Static_assert(sizeof(Meta_Data_t) <= PG_BUF_SIZE, "Meta_Data_t exceeds pg_buf");
 _Static_assert(sizeof(RTC_DateTime_t) <= PG_BUF_SIZE, "RTC_DateTime_t exceeds pg_buf");
 
 /* Union allows us to handle the largest possible payload (Meta_Data_t, 220 bytes)
  * without allocating multiple buffers or using large stack space. */
 static union
 {
-    Meta_Data_t    meta;
+    Meta_Data_t meta;
     RTC_DateTime_t rtc;
-    uint8_t        raw[PG_BUF_SIZE];
+    uint8_t raw[PG_BUF_SIZE];
 } pg_buf;
 
 /* BUG FIX #9: volatile so the compiler does not cache this in a register
@@ -117,6 +117,8 @@ static usb_state_t parser_state = STATE_MAGIC_H;
 /* BUG FIX #3: Move the extern declaration to file scope so it is not
  * re-declared on every call inside the switch-case. */
 extern Weather_Data_t weather_data; /* Defined in main / sensor task */
+
+extern int8_t g_wdt_id_cdc_task; // Watchdog slot ID for cdc_task
 
 /* -------------------------------------------------------------------------- */
 /* Helper Functions (Stream-based)                                            */
@@ -151,6 +153,41 @@ static void usb_send_ack(uint8_t echo_cmd)
     usb_send_footer();
 }
 
+/**
+ * @brief  Write @p len bytes to the CDC TX FIFO, flushing in 64-byte
+ *         USB packets as needed.  Returns false if a chunk is dropped.
+ *
+ * The hardware CDC TX FIFO is only 64 bytes at full-speed USB.  A single
+ * tud_cdc_write() of 216 bytes silently truncates to 64 bytes.  This
+ * helper flushes each 64-byte packet (which blocks briefly until the
+ * previous packet is consumed by the host) and retries on short writes.
+ */
+static bool usb_write_all(const void *data, uint16_t len)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    uint16_t rem = len;
+
+    while (rem > 0u)
+    {
+        uint16_t chunk = (rem > 64u) ? 64u : rem;
+        uint16_t written = (uint16_t)tud_cdc_write(p, chunk);
+        if (written == 0u)
+        {
+            /* FIFO full: flush and retry once. */
+            tud_cdc_write_flush();
+            vTaskDelay(pdMS_TO_TICKS(1));
+            written = (uint16_t)tud_cdc_write(p, chunk);
+            if (written == 0u)
+                return false;
+        }
+        rem -= written;
+        p += written;
+        if (rem > 0u)
+            tud_cdc_write_flush(); /* push partial packet before next chunk */
+    }
+    return true;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Main Task Loop                                                             */
 /* -------------------------------------------------------------------------- */
@@ -161,19 +198,16 @@ void cdc_task(void *params)
     /* Safe: written once here, then only read by ISR callbacks. */
     cdc_task_handle = xTaskGetCurrentTaskHandle();
 
-    static int8_t wdt_id;
-    wdt_id = wdt_register("cdctask");
-
-    uint8_t  current_cmd  = 0;
-    uint16_t rx_idx       = 0;
+    uint8_t current_cmd = 0;
+    uint16_t rx_idx = 0;
     uint16_t expected_len = 0;
 
     while (1)
     {
         /* Wait for USB CDC notification; kick watchdog every 500 ms while idle. */
         while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(WDT_PERIOD_MS)) == 0u)
-            wdt_kick(wdt_id);
-        wdt_kick(wdt_id);
+            wdt_kick(g_wdt_id_cdc_task);
+        wdt_kick(g_wdt_id_cdc_task);
 
         while (tud_cdc_available())
         {
@@ -193,7 +227,7 @@ void cdc_task(void *params)
 
             case STATE_CMD:
                 current_cmd = b;
-                rx_idx      = 0;
+                rx_idx = 0;
 
                 if (current_cmd == CMD_SET_META)
                     expected_len = (uint16_t)sizeof(Meta_Data_t);
@@ -255,7 +289,11 @@ void cdc_task(void *params)
                         PackData(&weather_data, &wp);
 
                         usb_send_header(CMD_REQ_WEATHER);
-                        tud_cdc_write(&wp, sizeof(wp));
+                        if (!usb_write_all(&wp, sizeof(wp)))
+                        {
+                            usb_send_nak(ERR_WRITE_FAILED);
+                            break;
+                        }
                         usb_send_footer();
                         break;
                     }
@@ -263,7 +301,11 @@ void cdc_task(void *params)
                     case CMD_REQ_META:
                         DB_GetMeta(&pg_buf.meta);
                         usb_send_header(CMD_REQ_META);
-                        tud_cdc_write(&(pg_buf.meta), sizeof(Meta_Data_t));
+                        if (!usb_write_all(&pg_buf.meta, sizeof(Meta_Data_t)))
+                        {
+                            usb_send_nak(ERR_WRITE_FAILED);
+                            break;
+                        }
                         usb_send_footer();
                         break;
 
@@ -285,7 +327,11 @@ void cdc_task(void *params)
 
                     case CMD_REQ_STATUS:
                         usb_send_header(CMD_REQ_STATUS);
-                        tud_cdc_write(&system_ready_status, sizeof(System_Ready_Status_t));
+                        if (!usb_write_all(&system_ready_status, sizeof(System_Ready_Status_t)))
+                        {
+                            usb_send_nak(ERR_WRITE_FAILED);
+                            break;
+                        }
                         usb_send_footer();
                         break;
 
@@ -309,8 +355,14 @@ void cdc_task(void *params)
                         if (datetime_get_datetime_from_rtc(&(pg_buf.rtc)))
                         {
                             usb_send_header(CMD_REQ_RTC);
-                            tud_cdc_write(&(pg_buf.rtc), sizeof(RTC_DateTime_t));
-                            usb_send_footer();
+                            if (!usb_write_all(&(pg_buf.rtc), sizeof(RTC_DateTime_t)))
+                            {
+                                usb_send_nak(ERR_WRITE_FAILED);
+                            }
+                            else
+                            {
+                                usb_send_footer();
+                            }
                         }
                         else
                         {

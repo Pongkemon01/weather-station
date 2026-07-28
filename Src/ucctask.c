@@ -74,6 +74,8 @@
 #define UCC_SEMAPHORE_TIMEOUT pdMS_TO_TICKS(100)
 
 extern Weather_Data_t weather_data; /* defined in maintask.c */
+extern int8_t g_wdt_id_ucctask;
+
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* Types                                                                        */
@@ -89,8 +91,7 @@ typedef enum
 
 typedef struct
 {
-    bool ucc_state_is_setting;
-    uint8_t ucc_state_l1_setting;
+    int8_t ucc_state_l1_setting; /* < 0 Means not setting */
     uint8_t ucc_state_l2_setting;
     bool ucc_state_l3_setting;
 } UCC_State_t;
@@ -101,7 +102,8 @@ typedef struct
 static uint16_t ucc_tick_counter = 0u;
 static uint8_t ucc_last_second = 0u;
 static UCC_State_t ucc_state = {0};
-static Meta_Data_t db_meta_data; /* 220 B static — never on stack   */
+static Meta_Data_t db_meta_data;       /* 220 B static — never on stack   */
+static QueueHandle_t key_queue = NULL; /* queue for key events (UI_Key_t) */
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* Lightweight numeric helpers  (OPT-1 — replaces atoi / atof)                 */
@@ -148,34 +150,120 @@ static int16_t parse_signed_int16(const char *s)
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-/* Key helpers                                                                   */
+/* Key helpers                                                                 */
 /* ═══════════════════════════════════════════════════════════════════════════ */
-static void Wait_For_Key_Release(void)
+
+/* Definitions for keytask */
+#define KEY_QUEUE_SIZE 5u
+osThreadId_t KeyTaskHandle;
+const osThreadAttr_t KeyTask_attributes = {
+    .name = "key",
+    .stack_size = 512,
+    .priority = (osPriority_t)osPriorityNormal,
+};
+
+static void key_push(UI_Key_t key)
 {
-    while (ui_interface.key_up || ui_interface.key_down ||
-           ui_interface.key_enter || ui_interface.key_menu)
+    UI_Key_t dummy;
+    if (key_queue != NULL)
     {
-        vTaskDelay(pdMS_TO_TICKS(50));
+        if (uxQueueSpacesAvailable(key_queue) == 0)
+            xQueueReceive(key_queue, &dummy, pdMS_TO_TICKS(2)); // Discard oldest key event if queue is full
+        xQueueSend(key_queue, &key, pdMS_TO_TICKS(2));
     }
 }
 
-static UI_Key_t Get_Key_Pressed(void)
+void key_manager_task(void *params)
 {
-    while (!ui_interface.key_up && !ui_interface.key_down &&
-           !ui_interface.key_enter && !ui_interface.key_menu)
-    {
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
+    /* Key behavior:
+      - MENU and ENTER - non-repeatable
+      - UP and DOWN - repeatable every 500 ms
+    */
+    (void)params;
+    bool key_menu_prev = false;
+    bool key_enter_prev = false;
+    uint8_t key_up_counter = 0u;
+    uint8_t key_down_counter = 0u;
 
+    key_queue = xQueueCreate(KEY_QUEUE_SIZE, sizeof(UI_Key_t));
+    /* key_queue may still be NULL if creation fails */
+
+    /* Initialize previous key states before loop */
     if (ui_interface.key_menu)
-        return UI_KEY_MENU;
+        key_menu_prev = true;
     if (ui_interface.key_enter)
-        return UI_KEY_ENTER;
+        key_enter_prev = true;
     if (ui_interface.key_up)
-        return UI_KEY_UP;
+        key_up_counter = 1u;
     if (ui_interface.key_down)
-        return UI_KEY_DOWN;
-    return UI_KEY_NONE;
+        key_down_counter = 1u;
+
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    while (1)
+    {
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(20));
+
+        /* Allocate memory for the key event (if needed) */
+        if (key_queue == NULL)
+            key_queue = xQueueCreate(KEY_QUEUE_SIZE, sizeof(UI_Key_t));
+        /* key_queue may still be NULL if creation fails */
+
+        /* Process non-repeatable keys */
+        if (ui_interface.key_menu)
+        {
+            if (!key_menu_prev)
+            {
+                key_menu_prev = true;
+                key_push(UI_KEY_MENU);
+            }
+        }
+        else
+        {
+            key_menu_prev = false;
+        }
+
+        if (ui_interface.key_enter)
+        {
+            if (!key_enter_prev)
+            {
+                key_enter_prev = true;
+                key_push(UI_KEY_ENTER);
+            }
+        }
+        else
+        {
+            key_enter_prev = false;
+        }
+
+        /* Process repeatable keys */
+        if (ui_interface.key_up)
+        {
+            key_up_counter++;
+            if (key_up_counter >= 40u)
+                key_up_counter = 0u;
+
+            if (key_up_counter == 1u) // Trigger on the first count after 500 ms (25 * 20 ms)
+                key_push(UI_KEY_UP);
+        }
+        else
+        {
+            key_up_counter = 0u;
+        }
+
+        if (ui_interface.key_down)
+        {
+            key_down_counter++;
+            if (key_down_counter >= 40u) // Adjust the threshold as needed
+                key_down_counter = 0u;
+
+            if (key_down_counter == 1u) // Trigger on the first count after 500 ms (25 * 20 ms)
+                key_push(UI_KEY_DOWN);
+        }
+        else
+        {
+            key_down_counter = 0u;
+        }
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -191,10 +279,7 @@ static void L1_Display(void)
         "5.Erase data"};
 
     if (ucc_state.ucc_state_l1_setting >= 5u)
-    {
-        ucc_state.ucc_state_l1_setting = 0u;
         return;
-    }
 
     if (xSemaphoreTake(ui_interface.mutex, UCC_SEMAPHORE_TIMEOUT) == pdTRUE)
     {
@@ -353,6 +438,7 @@ static uint8_t Input_Sampling_Interval(uint8_t init)
 {
     uint8_t sampling_interval = (init < 1u || init > 60u) ? 5u : init;
     bool setting_done = false;
+    UI_Key_t key;
 
     ui_interface.lcd_cursor_row = 1u;
     ui_interface.lcd_cursor_col = 11u;
@@ -368,8 +454,14 @@ static uint8_t Input_Sampling_Interval(uint8_t init)
             xSemaphoreGive(ui_interface.mutex);
         }
 
-        Wait_For_Key_Release();
-        UI_Key_t key = Get_Key_Pressed();
+        /* Handle key press */
+        while (key_queue == NULL)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));             /* Wait for key_queue to be created from key input task */
+            wdt_kick(g_wdt_id_ucctask);
+        }
+        while(xQueueReceive(key_queue, &key, pdMS_TO_TICKS(WDT_PERIOD_MS)) != pdTRUE) /* Wait for a key press indefinitely */
+            wdt_kick(g_wdt_id_ucctask);
 
         switch (key)
         {
@@ -409,6 +501,7 @@ static uint16_t Input_id(uint16_t init)
     bool setting_done = false;
     char input_buffer[4]; /* 3 digits + NUL */
     uint8_t input_index = 0u;
+    UI_Key_t key;
 
     if (init > 999u)
         init = 999u;
@@ -428,8 +521,14 @@ static uint16_t Input_id(uint16_t init)
             xSemaphoreGive(ui_interface.mutex);
         }
 
-        Wait_For_Key_Release();
-        UI_Key_t key = Get_Key_Pressed();
+         /* Handle key press */
+        while (key_queue == NULL)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));             /* Wait for key_queue to be created from key input task */
+            wdt_kick(g_wdt_id_ucctask);
+        }
+        while(xQueueReceive(key_queue, &key, pdMS_TO_TICKS(WDT_PERIOD_MS)) != pdTRUE) /* Wait for a key press indefinitely */
+            wdt_kick(g_wdt_id_ucctask);
 
         switch (key)
         {
@@ -484,6 +583,7 @@ static float Input_float(float init)
     char input_buffer[9]; /* 7 chars + NUL + 1 safety byte */
     uint8_t input_index = 0u;
     bool setting_done = false;
+    UI_Key_t key;
 
     if (init > 999.99f)
         init = 999.99f;
@@ -505,8 +605,14 @@ static float Input_float(float init)
             xSemaphoreGive(ui_interface.mutex);
         }
 
-        Wait_For_Key_Release();
-        UI_Key_t key = Get_Key_Pressed();
+        /* Handle key press */
+        while (key_queue == NULL)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));             /* Wait for key_queue to be created from key input task */
+            wdt_kick(g_wdt_id_ucctask);
+        }
+        while(xQueueReceive(key_queue, &key, pdMS_TO_TICKS(WDT_PERIOD_MS)) != pdTRUE) /* Wait for a key press indefinitely */
+            wdt_kick(g_wdt_id_ucctask);
 
         switch (key)
         {
@@ -561,6 +667,7 @@ static int16_t Input_light_offset(int16_t init)
     char input_buffer[6];
     uint8_t input_index = 0u;
     bool setting_done = false;
+    UI_Key_t key;
 
     if (init > 9999)
         init = 9999;
@@ -583,8 +690,14 @@ static int16_t Input_light_offset(int16_t init)
             xSemaphoreGive(ui_interface.mutex);
         }
 
-        Wait_For_Key_Release();
-        UI_Key_t key = Get_Key_Pressed();
+        /* Handle key press */
+        while (key_queue == NULL)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));             /* Wait for key_queue to be created from key input task */
+            wdt_kick(g_wdt_id_ucctask);
+        }
+        while(xQueueReceive(key_queue, &key, pdMS_TO_TICKS(WDT_PERIOD_MS)) != pdTRUE) /* Wait for a key press indefinitely */
+            wdt_kick(g_wdt_id_ucctask);
 
         switch (key)
         {
@@ -646,6 +759,7 @@ static void Input_date(RTC_DateTime_t *init)
     static const uint8_t col_for_field[3] = {9u, 12u, 15u};
     uint8_t input_index = 0u;
     bool setting_done = false;
+    UI_Key_t key;
 
     ui_interface.lcd_cursor_row = 1u;
     ui_interface.lcd_cursor_col = col_for_field[0];
@@ -663,8 +777,14 @@ static void Input_date(RTC_DateTime_t *init)
             xSemaphoreGive(ui_interface.mutex);
         }
 
-        Wait_For_Key_Release();
-        UI_Key_t key = Get_Key_Pressed();
+        /* Handle key press */
+        while (key_queue == NULL)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));             /* Wait for key_queue to be created from key input task */
+            wdt_kick(g_wdt_id_ucctask);
+        }
+        while(xQueueReceive(key_queue, &key, pdMS_TO_TICKS(WDT_PERIOD_MS)) != pdTRUE) /* Wait for a key press indefinitely */
+            wdt_kick(g_wdt_id_ucctask);
 
         switch (key)
         {
@@ -744,6 +864,7 @@ static void Input_time(RTC_DateTime_t *init)
     static const uint8_t col_for_field[3] = {9u, 12u, 15u};
     uint8_t input_index = 0u;
     bool setting_done = false;
+    UI_Key_t key;
 
     ui_interface.lcd_cursor_row = 1u;
     ui_interface.lcd_cursor_col = col_for_field[0];
@@ -761,8 +882,14 @@ static void Input_time(RTC_DateTime_t *init)
             xSemaphoreGive(ui_interface.mutex);
         }
 
-        Wait_For_Key_Release();
-        UI_Key_t key = Get_Key_Pressed();
+        /* Handle key press */
+        while (key_queue == NULL)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));             /* Wait for key_queue to be created from key input task */
+            wdt_kick(g_wdt_id_ucctask);
+        }
+        while(xQueueReceive(key_queue, &key, pdMS_TO_TICKS(WDT_PERIOD_MS)) != pdTRUE) /* Wait for a key press indefinitely */
+            wdt_kick(g_wdt_id_ucctask);
 
         switch (key)
         {
@@ -818,12 +945,20 @@ static void Input_time(RTC_DateTime_t *init)
 static void Perform_SetID_Setting(void)
 {
     bool setting_done = false;
+    UI_Key_t key;
 
     while (!setting_done)
     {
         L2_0_Display();
-        Wait_For_Key_Release();
-        UI_Key_t key = Get_Key_Pressed();
+
+        /* Handle key press */
+        while (key_queue == NULL)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));             /* Wait for key_queue to be created from key input task */
+            wdt_kick(g_wdt_id_ucctask);
+        }
+        while(xQueueReceive(key_queue, &key, pdMS_TO_TICKS(WDT_PERIOD_MS)) != pdTRUE) /* Wait for a key press indefinitely */
+            wdt_kick(g_wdt_id_ucctask);
 
         switch (key)
         {
@@ -849,12 +984,20 @@ static void Perform_SetID_Setting(void)
 static void Perform_SetOffset_Setting(void)
 {
     bool setting_done = false;
+    UI_Key_t key;
 
     while (!setting_done)
     {
         L2_1_Display();
-        Wait_For_Key_Release();
-        UI_Key_t key = Get_Key_Pressed();
+
+        /* Handle key press */
+        while (key_queue == NULL)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));             /* Wait for key_queue to be created from key input task */
+            wdt_kick(g_wdt_id_ucctask);
+        }
+        while(xQueueReceive(key_queue, &key, pdMS_TO_TICKS(WDT_PERIOD_MS)) != pdTRUE) /* Wait for a key press indefinitely */
+            wdt_kick(g_wdt_id_ucctask);
 
         switch (key)
         {
@@ -901,14 +1044,22 @@ static void Perform_SetDateTime_Setting(void)
     bool setting_done = false;
     bool date_changed = false;
     RTC_DateTime_t temp_date_time;
+    UI_Key_t key;
 
     (void)datetime_get_datetime_from_rtc(&temp_date_time);
 
     while (!setting_done)
     {
         L2_3_Display_dt(&temp_date_time); /* BUG-4 */
-        Wait_For_Key_Release();
-        UI_Key_t key = Get_Key_Pressed();
+
+        /* Handle key press */
+        while (key_queue == NULL)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));             /* Wait for key_queue to be created from key input task */
+            wdt_kick(g_wdt_id_ucctask);
+        }
+        while(xQueueReceive(key_queue, &key, pdMS_TO_TICKS(WDT_PERIOD_MS)) != pdTRUE) /* Wait for a key press indefinitely */
+            wdt_kick(g_wdt_id_ucctask);
 
         switch (key)
         {
@@ -938,17 +1089,29 @@ static void Perform_SetDateTime_Setting(void)
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* Top-level L1 setting loop                                                     */
 /* ═══════════════════════════════════════════════════════════════════════════ */
-static void Perform_L1_Setting(void)
+static void Perform_Setting(void)
 {
-    while (ucc_state.ucc_state_is_setting)
+    bool setting_done = false;
+    UI_Key_t key;
+    while (!setting_done)
     {
+
+        /* Display L1 Menu*/
         L1_Display();
         // Update red LED status.
         if (!(system_ready_status.fram_ready) && ui_interface.led_green != LED_OFF)
-           ui_interface.led_green = LED_BLINK;
+            ui_interface.led_green = LED_BLINK;
 
-        Wait_For_Key_Release();
-        UI_Key_t key = Get_Key_Pressed();
+        /* Handle menu key press */
+        while (key_queue == NULL)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));             /* Wait for key_queue to be created from key input task */
+            wdt_kick(g_wdt_id_ucctask);
+        }
+        while(xQueueReceive(key_queue, &key, pdMS_TO_TICKS(WDT_PERIOD_MS)) != pdTRUE) /* Wait for a key press indefinitely */
+            wdt_kick(g_wdt_id_ucctask);
+
+        printf("### UCC: L1 key %d, setting %d\r\n", (int)key, (int)ucc_state.ucc_state_l1_setting);
 
         switch (key)
         {
@@ -994,99 +1157,128 @@ static void Perform_L1_Setting(void)
                     ui_interface.disp[1][sizeof(ui_interface.disp[1]) - 1u] = '\0';
                     ui_interface.lcd_need_updated = true;
                     xSemaphoreGive(ui_interface.mutex);
+
+                    /* Return to main screen */
+                    ucc_state.ucc_state_l1_setting = -1;
+                    ucc_state.ucc_state_l2_setting = -1;
+                    setting_done = true;
                 }
             }
             break;
         case UI_KEY_MENU:
-            ucc_state.ucc_state_is_setting = false;
+            ucc_state.ucc_state_l1_setting = -1;
+            ucc_state.ucc_state_l2_setting = -1;
+            setting_done = true;
+
             break;
         default:
             break;
         }
+
+        printf("### UCC: L1 setting %d, L2 setting %d\r\n",
+               (int)ucc_state.ucc_state_l1_setting,
+               (int)ucc_state.ucc_state_l2_setting);
     }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-/* Task entry point                                                              */
+/* Task entry point                                                            */
 /* ═══════════════════════════════════════════════════════════════════════════ */
+extern int8_t g_wdt_id_ucctask;
 void ucctask(void *params)
 {
     (void)params;
 
-    static int8_t wdt_id;
-    wdt_id = wdt_register("ucctask");
+    /* Create the key manager task */
+    KeyTaskHandle = osThreadNew(key_manager_task, NULL, &KeyTask_attributes);
 
-    TickType_t xLastWakeTime = xTaskGetTickCount();
+    /* Initialize ucc_state */
+    ucc_state.ucc_state_l1_setting = -1;
+    ucc_state.ucc_state_l2_setting = 0;
+    ucc_state.ucc_state_l3_setting = false;
 
     while (1)
     {
-        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(100));
-        wdt_kick(wdt_id);
+        vTaskDelay(pdMS_TO_TICKS(25));
+        wdt_kick(g_wdt_id_ucctask);
 
-        /* BUG-6: atomic read — weather_data written by a separate sensor task */
-        uint8_t current_seconds;
-        taskENTER_CRITICAL();
-        current_seconds = weather_data.sampletime.seconds;
-        taskEXIT_CRITICAL();
-
-        ucc_tick_counter++;
-        if (ucc_last_second != current_seconds)
+        if (ucc_state.ucc_state_l1_setting >= 0)
         {
-            ucc_last_second = current_seconds;
-            ucc_tick_counter = 0u;
+            Perform_Setting();
         }
+        else
+        {
+            /* Main screen */
+            /* BUG-6: atomic read — weather_data written by a separate sensor task */
+            uint8_t current_seconds;
+            taskENTER_CRITICAL();
+            current_seconds = weather_data.sampletime.seconds;
+            taskEXIT_CRITICAL();
 
-        if (ui_interface.key_menu && !ucc_state.ucc_state_is_setting)
-        {
-            ucc_state.ucc_state_is_setting = true;
-            ucc_state.ucc_state_l1_setting = 0u;
-            ucc_state.ucc_state_l2_setting = 0u;
-            ucc_state.ucc_state_l3_setting = false;
-        }
-
-        if (ucc_state.ucc_state_is_setting)
-        {
-            Perform_L1_Setting();
-        }
-        else if (ucc_tick_counter == 0u)
-        {
-            /* Once per second: update normal display */
-            if (xSemaphoreTake(ui_interface.mutex, pdMS_TO_TICKS(5)) == pdTRUE)
+            ucc_tick_counter++;
+            if (ucc_last_second != current_seconds)
             {
-                snprintf(ui_interface.disp[0], sizeof(ui_interface.disp[0]),
-                         "20%02u/%02u/%02u %02u:%02u",
-                         weather_data.sampletime.year,
-                         weather_data.sampletime.month,
-                         weather_data.sampletime.day,
-                         weather_data.sampletime.hours,
-                         weather_data.sampletime.minutes);
+                ucc_last_second = current_seconds;
+                ucc_tick_counter = 0u;
+            }
 
-                if (!system_ready_status.bmp390_ready)
-                    strncpy(ui_interface.disp[1], "Pressure Error!", sizeof(ui_interface.disp[1]) - 1u);
-                else if (!system_ready_status.sht45_ready)
-                    strncpy(ui_interface.disp[1], "Temp Error!", sizeof(ui_interface.disp[1]) - 1u);
-                else if (!system_ready_status.usart_ready)
-                    strncpy(ui_interface.disp[1], "USART Error!", sizeof(ui_interface.disp[1]) - 1u);
-                else if (!system_ready_status.modbus_ready)
-                    strncpy(ui_interface.disp[1], "Modbus Error!", sizeof(ui_interface.disp[1]) - 1u);
-                else if (!system_ready_status.rainfall_ok)
-                    strncpy(ui_interface.disp[1], "Rainguage Error!", sizeof(ui_interface.disp[1]) - 1u);
-                else if (!system_ready_status.light_ok)
-                    strncpy(ui_interface.disp[1], "Light Error!", sizeof(ui_interface.disp[1]) - 1u);
-                else if (!system_ready_status.fram_ready)
-                    strncpy(ui_interface.disp[1], "Database Error!", sizeof(ui_interface.disp[1]) - 1u);
-                else if (!system_ready_status.a7670_ready)
-                    strncpy(ui_interface.disp[1], "Modem Error!", sizeof(ui_interface.disp[1]) - 1u);
-                else if (!system_ready_status.datetime_ready)
-                    strncpy(ui_interface.disp[1], "DateTime Error!", sizeof(ui_interface.disp[1]) - 1u);
-                else
-                    snprintf(ui_interface.disp[1], sizeof(ui_interface.disp[1]),
-                             "T:%.2fC Rh:%.2f%%",
-                             weather_data.temperature, weather_data.humidity);
+            if (ucc_tick_counter == 0u)
+            {
+                /* Once per second: update normal display */
+                if (xSemaphoreTake(ui_interface.mutex, pdMS_TO_TICKS(5)) == pdTRUE)
+                {
+                    snprintf(ui_interface.disp[0], sizeof(ui_interface.disp[0]),
+                             "20%02u/%02u/%02u %02u:%02u",
+                             weather_data.sampletime.year,
+                             weather_data.sampletime.month,
+                             weather_data.sampletime.day,
+                             weather_data.sampletime.hours,
+                             weather_data.sampletime.minutes);
 
-                ui_interface.disp[1][sizeof(ui_interface.disp[1]) - 1u] = '\0';
-                ui_interface.lcd_need_updated = true;
-                xSemaphoreGive(ui_interface.mutex);
+                    if (!system_ready_status.bmp390_ready)
+                        strncpy(ui_interface.disp[1], "Pressure Error!", sizeof(ui_interface.disp[1]) - 1u);
+                    else if (!system_ready_status.sht45_ready)
+                        strncpy(ui_interface.disp[1], "Temp Error!", sizeof(ui_interface.disp[1]) - 1u);
+                    else if (!system_ready_status.usart_ready)
+                        strncpy(ui_interface.disp[1], "USART Error!", sizeof(ui_interface.disp[1]) - 1u);
+                    else if (!system_ready_status.modbus_ready)
+                        strncpy(ui_interface.disp[1], "Modbus Error!", sizeof(ui_interface.disp[1]) - 1u);
+                    else if (!system_ready_status.rainfall_ok)
+                        strncpy(ui_interface.disp[1], "Rainguage Error!", sizeof(ui_interface.disp[1]) - 1u);
+                    else if (!system_ready_status.light_ok)
+                        strncpy(ui_interface.disp[1], "Light Error!", sizeof(ui_interface.disp[1]) - 1u);
+                    else if (!system_ready_status.fram_ready)
+                        strncpy(ui_interface.disp[1], "Database Error!", sizeof(ui_interface.disp[1]) - 1u);
+                    else if (!system_ready_status.a7670_ready)
+                        strncpy(ui_interface.disp[1], "Modem Error!", sizeof(ui_interface.disp[1]) - 1u);
+                    else if (!system_ready_status.datetime_ready)
+                        strncpy(ui_interface.disp[1], "DateTime Error!", sizeof(ui_interface.disp[1]) - 1u);
+                    else
+                        snprintf(ui_interface.disp[1], sizeof(ui_interface.disp[1]),
+                                 "T:%.2fC Rh:%.2f%%",
+                                 weather_data.temperature, weather_data.humidity);
+
+                    ui_interface.disp[1][sizeof(ui_interface.disp[1]) - 1u] = '\0';
+
+                    ui_interface.lcd_need_updated = true;
+                    xSemaphoreGive(ui_interface.mutex);
+                }
+            }
+
+            /* Handle menu key press */
+            if (key_queue != NULL && uxQueueMessagesWaiting(key_queue) > 0)
+            {
+                UI_Key_t key;
+                if (xQueueReceive(key_queue, &key, 0) == pdTRUE)
+                {
+                    if (key == UI_KEY_MENU)
+                    {
+                        ucc_state.ucc_state_l1_setting = 0;
+                        ucc_state.ucc_state_l2_setting = 0;
+                        ucc_state.ucc_state_l3_setting = false;
+                    }
+                    /* Ignore other keys */
+                }
             }
         }
     }

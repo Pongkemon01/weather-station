@@ -42,6 +42,7 @@
  */
 
 #include <string.h>
+#include <stdio.h>
 #include "nv_database.h"
 #include "fram_addresses.h"  /* FRAM_DB_END — single source of truth for DB region */
 #include "main.h"            /* g_fram_spi_mutex */
@@ -62,8 +63,8 @@
 /* ---- Default configuration ------------------------------------ */
 static const Meta_Data_t initial_meta = {
     .validation_value = VALIDATION_VALUE,
-    .region_id = 0u,
-    .station_id = 0u,
+    .region_id = 1u,
+    .station_id = 1u,
     .sampling_interval = 15u,
     .temperature_adj = 0.0f,
     .humidity_adj = 0.0f,
@@ -190,6 +191,7 @@ bool DB_AddData(const Weather_Data_Packed_t *data)
     }
 
     unlock();
+
     return ok;
 }
 

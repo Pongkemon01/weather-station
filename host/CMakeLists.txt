@@ -161,6 +161,9 @@ if(WIN32)
                 --no-opengl-sw
                 --no-quick-import
                 --no-compiler-runtime
+                --no-network
+                --skip-plugin-types
+                generic,iconengines,imageformats,networkinformation,tls
                 \"\${CMAKE_INSTALL_PREFIX}/robin_wsc.exe\"
         )
     ")

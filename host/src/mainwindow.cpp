@@ -49,6 +49,17 @@ MainWindow::MainWindow(QWidget* parent)
     connect(weatherPoll_, &QTimer::timeout,
             controller_, &DeviceController::requestWeather);
 
+    rtcPoll_ = new QTimer(this);
+    rtcPoll_->setInterval(500);
+    connect(rtcPoll_, &QTimer::timeout,
+            controller_, &DeviceController::requestRtc);
+
+    autoReconnect_ = new QTimer(this);
+    autoReconnect_->setSingleShot(true);
+    autoReconnect_->setInterval(2000);
+    connect(autoReconnect_, &QTimer::timeout,
+            this, &MainWindow::scanAndConnect);
+
     // ----- Clock timer -------------------------------------------------------
     clockTimer_ = new QTimer(this);
     clockTimer_->setInterval(1000);
@@ -178,6 +189,7 @@ void MainWindow::onConnected()
 {
     connected_ = true;
     hideBanner();
+    autoReconnect_->stop();
     ui_->statusbar->showMessage(tr("Connected"));
 
     ui_->statusConnectionLabel->setText(tr("Connected"));
@@ -205,12 +217,11 @@ void MainWindow::onConnected()
     ui_->sensorApplyButton->setEnabled(true);
 
     // Kick off initial reads.
-    controller_->requestRtc();
     controller_->requestMeta();
 
     // Start polling for the currently-visible tab.
     int tab = ui_->tabWidget->currentIndex();
-    if (tab == 0) statusPoll_->start();
+    if (tab == 0) { statusPoll_->start(); rtcPoll_->start(); }
     if (tab == 1) weatherPoll_->start();
 
     log_buffer_->info(QStringLiteral("Device connected"));
@@ -222,9 +233,10 @@ void MainWindow::onDisconnected()
     controller_->invalidateMetaCache();
     resetToDisconnected();
     ui_->statusbar->showMessage(tr("Disconnected"));
-    showBanner(tr("Device disconnected. Connect the device and use Re-connect."),
+    showBanner(tr("Device disconnected. Reconnecting..."),
                BannerKind::Warning);
     log_buffer_->info(QStringLiteral("Device disconnected"));
+    autoReconnect_->start();
 }
 
 void MainWindow::onProtocolMismatch(const QString& message)
@@ -234,6 +246,7 @@ void MainWindow::onProtocolMismatch(const QString& message)
 
 void MainWindow::onFatalIncompatibility(const QString& message)
 {
+    autoReconnect_->stop();
     QMessageBox::critical(this, tr("Fatal Incompatibility"), message);
     for (int i = 1; i < ui_->tabWidget->count(); ++i)
         ui_->tabWidget->setTabEnabled(i, false);
@@ -546,7 +559,8 @@ void MainWindow::onCurrentTabChanged(int index)
         return;
 
     // Manage polling timers.
-    if (index == 0) statusPoll_->start();   else statusPoll_->stop();
+    if (index == 0) { statusPoll_->start(); rtcPoll_->start(); }
+    else            { statusPoll_->stop();  rtcPoll_->stop();  }
     if (index == 1) weatherPoll_->start();  else weatherPoll_->stop();
 
     // Load meta lazily when entering settings tabs.
@@ -579,6 +593,7 @@ void MainWindow::resetToDisconnected()
 
     if (statusPoll_)  statusPoll_->stop();
     if (weatherPoll_) weatherPoll_->stop();
+    if (rtcPoll_)     rtcPoll_->stop();
 
     const QString gray =
         QStringLiteral("background-color: #aaaaaa; border-radius: 3px;");
