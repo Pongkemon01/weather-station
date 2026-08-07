@@ -72,6 +72,7 @@
 #include <stdio.h>
 
 #define UCC_SEMAPHORE_TIMEOUT pdMS_TO_TICKS(100)
+#define UCC_BACKLIGHT_TIMEOUT 500u
 
 extern Weather_Data_t weather_data; /* defined in maintask.c */
 extern int8_t g_wdt_id_ucctask;
@@ -104,6 +105,7 @@ static uint8_t ucc_last_second = 0u;
 static UCC_State_t ucc_state = {0};
 static Meta_Data_t db_meta_data;       /* 220 B static — never on stack   */
 static QueueHandle_t key_queue = NULL; /* queue for key events (UI_Key_t) */
+static uint32_t ucc_backlight_timeout_counter = 0u;
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* Lightweight numeric helpers  (OPT-1 — replaces atoi / atof)                 */
@@ -1202,6 +1204,16 @@ void ucctask(void *params)
         vTaskDelay(pdMS_TO_TICKS(25));
         wdt_kick(g_wdt_id_ucctask);
 
+        if(ucc_backlight_timeout_counter != 0)
+        {
+            ucc_backlight_timeout_counter--;
+            ui_interface.lcd_bk_on = true;
+        }
+        else
+        {
+            ui_interface.lcd_bk_on = false;
+        }
+
         if (ucc_state.ucc_state_l1_setting >= 0)
         {
             Perform_Setting();
@@ -1271,6 +1283,7 @@ void ucctask(void *params)
                 UI_Key_t key;
                 if (xQueueReceive(key_queue, &key, 0) == pdTRUE)
                 {
+                    ucc_backlight_timeout_counter = UCC_BACKLIGHT_TIMEOUT; /* reset backlight timeout */
                     if (key == UI_KEY_MENU)
                     {
                         ucc_state.ucc_state_l1_setting = 0;
